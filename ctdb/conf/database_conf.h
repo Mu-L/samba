@@ -1,7 +1,7 @@
 /*
-   CTDB logging config handling
+   CTDB database config handling
 
-   Copyright (C) Martin Schwenke  2017
+   Copyright (C) Martin Schwenke  2018
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -17,20 +17,19 @@
    along with this program; if not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef __LOGGING_CONF_H__
-#define __LOGGING_CONF_H__
+#ifndef __CTDB_DATABASE_CONF_H__
+#define __CTDB_DATABASE_CONF_H__
 
-#include "common/conf.h"
+#include "conf/conf.h"
 
-#define LOGGING_CONF_SECTION	"logging"
+#define DATABASE_CONF_SECTION "database"
 
-#define LOGGING_CONF_LOCATION	"location"
-#define LOGGING_CONF_LOG_LEVEL	"log level"
+#define DATABASE_CONF_VOLATILE_DB_DIR           "volatile database directory"
+#define DATABASE_CONF_PERSISTENT_DB_DIR         "persistent database directory"
+#define DATABASE_CONF_STATE_DB_DIR              "state database directory"
+#define DATABASE_CONF_LOCK_DEBUG_SCRIPT         "lock debug script"
+#define DATABASE_CONF_TDB_MUTEXES               "tdb mutexes"
 
-void logging_conf_init(struct conf_context *conf,
-		       const char *default_log_level);
+void database_conf_init(struct conf_context *conf);
 
-const char *logging_conf_location(struct conf_context *conf);
-const char *logging_conf_log_level(struct conf_context *conf);
-
-#endif /* __LOGGING_CONF_H__ */
+#endif /* __CTDB_DATABASE_CONF_H__ */

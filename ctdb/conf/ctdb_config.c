@@ -21,17 +21,17 @@
 
 #include "lib/util/debug.h"
 
-#include "common/conf.h"
-#include "common/logging_conf.h"
 #include "common/path.h"
 
-#include "cluster/cluster_conf.h"
-#include "database/database_conf.h"
-#include "event/event_conf.h"
-#include "failover/failover_conf.h"
-#include "legacy_conf.h"
+#include "conf/conf.h"
+#include "conf/logging_conf.h"
+#include "conf/cluster_conf.h"
+#include "conf/database_conf.h"
+#include "conf/event_conf.h"
+#include "conf/failover_conf.h"
+#include "conf/legacy_conf.h"
 
-#include "ctdb_config.h"
+#include "conf/ctdb_config.h"
 
 struct ctdb_config ctdb_config;
 
@@ -133,8 +133,8 @@ static void setup_config_pointers(struct conf_context *conf)
 				   &ctdb_config.script_log_level);
 }
 
-int ctdbd_config_load(TALLOC_CTX *mem_ctx,
-		      struct conf_context **result)
+int ctdb_config_load(TALLOC_CTX *mem_ctx,
+		     struct conf_context **result)
 {
 	struct conf_context *conf = NULL;
 	int ret = 0;

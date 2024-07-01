@@ -1,4 +1,4 @@
-/* 
+/*
    Unix SMB/CIFS implementation.
    PAM Password checking
    Copyright (C) Andrew Tridgell 1992-2001
@@ -37,7 +37,7 @@
 #ifdef WITH_PAM
 
 /*******************************************************************
- * Handle PAM authentication 
+ * Handle PAM authentication
  * 	- Access, Authentication, Session, Password
  *   Note: See PAM Documentation and refer to local system PAM implementation
  *   which determines what actions/limitations/allowances become affected.
@@ -99,7 +99,7 @@ static bool smb_pam_error_handler(pam_handle_t *pamh, int pam_error, const char 
 *********************************************************************/
 
 static bool smb_pam_nt_status_error_handler(pam_handle_t *pamh, int pam_error,
-					    const char *msg, int dbglvl, 
+					    const char *msg, int dbglvl,
 					    NTSTATUS *nt_status)
 {
 	*nt_status = pam_to_nt_status(pam_error);
@@ -220,7 +220,7 @@ struct chat_struct {
  Create a linked list containing chat data.
 ***************************************************************/
 
-static struct chat_struct *make_pw_chat(const char *p) 
+static struct chat_struct *make_pw_chat(const char *p)
 {
 	char *prompt;
 	char *reply;
@@ -294,7 +294,7 @@ static int smb_pam_passchange_conv(int num_msg,
 	struct chat_struct *t;
 	const struct loadparm_substitution *lp_sub =
 		loadparm_s3_global_substitution();
-	bool found; 
+	bool found;
 	*resp = NULL;
 
 	DEBUG(10,("smb_pam_passchange_conv: starting conversation for %d messages\n", num_msg));
@@ -452,7 +452,7 @@ static struct pam_conv *smb_setup_pam_conv(smb_pam_conv_fn smb_pam_conv_fnptr, c
 	return pconv;
 }
 
-/* 
+/*
  * PAM Closing out cleanup handler
  */
 
@@ -464,12 +464,16 @@ static bool smb_pam_end(pam_handle_t *pamh, struct pam_conv *smb_pam_conv_ptr)
 
 	if( pamh != NULL ) {
 		pam_error = pam_end(pamh, 0);
-		if(smb_pam_error_handler(pamh, pam_error, "End Cleanup Failed", 2) == True) {
-			DEBUG(4, ("smb_pam_end: PAM: PAM_END OK.\n"));
+		if (pam_error == PAM_SUCCESS) {
+			DBG_NOTICE("PAM: PAM_END OK.\n");
 			return True;
 		}
+
+		DBG_WARNING("PAM: PAM_END FAILED (%d).\n", pam_error);
+	} else {
+		DBG_INFO("PAM: not initialised\n");
 	}
-	DEBUG(2,("smb_pam_end: PAM: not initialised\n"));
+
 	return False;
 }
 
@@ -559,7 +563,7 @@ static NTSTATUS smb_pam_auth(pam_handle_t *pamh, const char *user)
 	return nt_status;
 }
 
-/* 
+/*
  * PAM Account Handler
  */
 static NTSTATUS smb_pam_account(pam_handle_t *pamh, const char * user)
@@ -612,7 +616,7 @@ static NTSTATUS smb_pam_setcred(pam_handle_t *pamh, const char * user)
 	 */
 
 	DEBUG(4,("PAM: Account Management SetCredentials for User: %s\n", user));
-	pam_error = pam_setcred(pamh, (PAM_ESTABLISH_CRED|PAM_SILENT)); 
+	pam_error = pam_setcred(pamh, (PAM_ESTABLISH_CRED|PAM_SILENT));
 	switch( pam_error ) {
 		case PAM_CRED_UNAVAIL:
 			DEBUG(0, ("smb_pam_setcred: PAM: Credentials not found for user:%s\n", user ));
@@ -710,7 +714,7 @@ static bool smb_pam_chauthtok(pam_handle_t *pamh, const char * user)
 	default:
 		DEBUG(0, ("PAM: UNKNOWN PAM ERROR (%d) for User: %s\n", pam_error, user));
 	}
- 
+
 	if(!smb_pam_error_handler(pamh, pam_error, "Password Change Failed", 2)) {
 		return False;
 	}

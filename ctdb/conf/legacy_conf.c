@@ -21,10 +21,10 @@
 
 #include "lib/util/debug.h"
 
-#include "common/conf.h"
 #include "common/logging.h"
 
-#include "legacy_conf.h"
+#include "conf/conf.h"
+#include "conf/legacy_conf.h"
 
 #define LEGACY_SCRIPT_LOG_LEVEL_DEFAULT "ERROR"
 

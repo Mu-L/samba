@@ -64,8 +64,13 @@ static void dos_mode_debug_print(const char *func, uint32_t mode)
 	if (mode & FILE_ATTRIBUTE_COMPRESSED) {
 		fstrcat(modestr, "[compressed]");
 	}
+	if (mode & FILE_ATTRIBUTE_REPARSE_POINT) {
+		fstrcat(modestr, "[reparse_point]");
+	}
 
-	DBG_INFO("%s returning (0x%x): \"%s\"\n", func, (unsigned)mode,
+	DBG_INFO("%s returning (0x%" PRIx32 "): \"%s\"\n",
+		 func,
+		 mode,
 		 modestr);
 }
 
@@ -215,13 +220,14 @@ static uint32_t dos_mode_from_sbuf(connection_struct *conn,
 		if ((st->st_ex_mode & S_IWUSR) == 0) {
 			result |= FILE_ATTRIBUTE_READONLY;
 		}
-	} else if (ro_opts == MAP_READONLY_PERMISSIONS) {
+	}
+	if (ro_opts == MAP_READONLY_PERMISSIONS) {
 		/* smb_fname->fsp can be NULL for an MS-DFS link. */
 		/* Check actual permissions for read-only. */
 		if ((fsp != NULL) && !can_write_to_fsp(fsp)) {
 			result |= FILE_ATTRIBUTE_READONLY;
 		}
-	} /* Else never set the readonly bit. */
+	}
 
 	if (MAP_ARCHIVE(conn) && ((st->st_ex_mode & S_IXUSR) != 0)) {
 		result |= FILE_ATTRIBUTE_ARCHIVE;
@@ -540,9 +546,9 @@ NTSTATUS set_ea_dos_attribute(connection_struct *conn,
 	btime = nt_time_to_full_timespec(dosattrib.info.info5.create_time);
 	update_stat_ex_create_time(&smb_fname->st, btime);
 
-	DEBUG(10,("set_ea_dos_attribute: set EA 0x%x on file %s\n",
-		(unsigned int)dosmode,
-		smb_fname_str_dbg(smb_fname)));
+	DBG_DEBUG("set EA 0x%" PRIx32 " on file %s\n",
+		  dosmode,
+		  smb_fname_str_dbg(smb_fname));
 	return NT_STATUS_OK;
 }
 
@@ -719,15 +725,11 @@ uint32_t fdos_mode(struct files_struct *fsp)
 	status = SMB_VFS_FGET_DOS_ATTRIBUTES(fsp->conn,
 					     metadata_fsp(fsp),
 					     &result);
-	if (!NT_STATUS_IS_OK(status)) {
-		/*
-		 * Only fall back to using UNIX modes if we get NOT_IMPLEMENTED.
-		 */
-		if (NT_STATUS_EQUAL(status, NT_STATUS_NOT_IMPLEMENTED)) {
-			result |= dos_mode_from_sbuf(fsp->conn,
-						     &fsp->fsp_name->st,
-						     fsp);
-		}
+
+	if (NT_STATUS_EQUAL(status, NT_STATUS_NOT_IMPLEMENTED)) {
+		result |= dos_mode_from_sbuf(fsp->conn,
+					     &fsp->fsp_name->st,
+					     fsp);
 	}
 
 	fsp->fsp_name->st.cached_dos_attributes = dos_mode_post(result, fsp, __func__);
@@ -1226,7 +1228,7 @@ int file_ntimes(connection_struct *conn,
 
 done:
 	if (ret == 0) {
-		copy_stat_ex_timestamps(fsp, ft);
+		copy_stat_ex_timestamps(&fsp->fsp_name->st, ft);
 	}
 
 	return ret;

@@ -1,7 +1,7 @@
 /*
-   CTDB cluster config handling
+   CTDB event daemon
 
-   Copyright (C) Martin Schwenke  2018
+   Copyright (C) Amitay Isaacs  2018
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -17,20 +17,15 @@
    along with this program; if not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef __CTDB_CLUSTER_CONF_H__
-#define __CTDB_CLUSTER_CONF_H__
+#ifndef __CTDB_EVENT_CONF_H__
+#define __CTDB_EVENT_CONF_H__
 
-#include "common/conf.h"
+#include "conf/conf.h"
 
-#define CLUSTER_CONF_SECTION "cluster"
+#define EVENT_CONF_SECTION		"event"
 
-#define CLUSTER_CONF_TRANSPORT       "transport"
-#define CLUSTER_CONF_NODE_ADDRESS    "node address"
-#define CLUSTER_CONF_CLUSTER_LOCK    "cluster lock"
-#define CLUSTER_CONF_RECOVERY_LOCK   "recovery lock"
-#define CLUSTER_CONF_LEADER_TIMEOUT  "leader timeout"
-#define CLUSTER_CONF_LEADER_CAPABILITY "leader capability"
+#define EVENT_CONF_DEBUG_SCRIPT		"debug script"
 
-void cluster_conf_init(struct conf_context *conf);
+void event_conf_init(struct conf_context *conf);
 
-#endif /* __CTDB_CLUSTER_CONF_H__ */
+#endif /* __CTDB_EVENT_CONF_H__ */

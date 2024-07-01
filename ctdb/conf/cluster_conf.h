@@ -1,5 +1,5 @@
 /*
-   CTDB database config handling
+   CTDB cluster config handling
 
    Copyright (C) Martin Schwenke  2018
 
@@ -17,19 +17,20 @@
    along with this program; if not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef __CTDB_DATABASE_CONF_H__
-#define __CTDB_DATABASE_CONF_H__
+#ifndef __CTDB_CLUSTER_CONF_H__
+#define __CTDB_CLUSTER_CONF_H__
 
-#include "common/conf.h"
+#include "conf/conf.h"
 
-#define DATABASE_CONF_SECTION "database"
+#define CLUSTER_CONF_SECTION "cluster"
 
-#define DATABASE_CONF_VOLATILE_DB_DIR           "volatile database directory"
-#define DATABASE_CONF_PERSISTENT_DB_DIR         "persistent database directory"
-#define DATABASE_CONF_STATE_DB_DIR              "state database directory"
-#define DATABASE_CONF_LOCK_DEBUG_SCRIPT         "lock debug script"
-#define DATABASE_CONF_TDB_MUTEXES               "tdb mutexes"
+#define CLUSTER_CONF_TRANSPORT       "transport"
+#define CLUSTER_CONF_NODE_ADDRESS    "node address"
+#define CLUSTER_CONF_CLUSTER_LOCK    "cluster lock"
+#define CLUSTER_CONF_RECOVERY_LOCK   "recovery lock"
+#define CLUSTER_CONF_LEADER_TIMEOUT  "leader timeout"
+#define CLUSTER_CONF_LEADER_CAPABILITY "leader capability"
 
-void database_conf_init(struct conf_context *conf);
+void cluster_conf_init(struct conf_context *conf);
 
-#endif /* __CTDB_DATABASE_CONF_H__ */
+#endif /* __CTDB_CLUSTER_CONF_H__ */

@@ -2368,14 +2368,11 @@ cBytesSector=%u, cUnitTotal=%u, cUnitAvail=%d\n", (unsigned int)bsize, (unsigned
 			/* we need to fake up a fsp here,
 			 * because its not send in this call
 			 */
-			files_struct tmpfsp;
-			SMB_NTQUOTA_STRUCT quotas;
-
-			ZERO_STRUCT(tmpfsp);
-			ZERO_STRUCT(quotas);
-
-			tmpfsp.conn = conn;
-			tmpfsp.fnum = FNUM_FIELD_INVALID;
+			files_struct tmpfsp = {
+				.conn = conn,
+				.fnum = FNUM_FIELD_INVALID,
+			};
+			SMB_NTQUOTA_STRUCT quotas = {};
 
 			/* access check */
 			if (get_current_uid(conn) != 0) {
@@ -5146,15 +5143,6 @@ NTSTATUS smbd_do_setfilepathinfo(connection_struct *conn,
 		case SMB_FILE_DISPOSITION_INFORMATION:
 		case SMB_SET_FILE_DISPOSITION_INFO: /* Set delete on close for open file. */
 		{
-#if 0
-			/* JRA - We used to just ignore this on a path ?
-			 * Shouldn't this be invalid level on a pathname
-			 * based call ?
-			 */
-			if (tran_call != TRANSACT2_SETFILEINFO) {
-				return ERROR_NT(NT_STATUS_INVALID_LEVEL);
-			}
-#endif
 			status = smb_set_file_disposition_info(conn,
 						pdata,
 						total_data,

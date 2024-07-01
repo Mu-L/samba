@@ -22,9 +22,9 @@
 
 #include "lib/util/debug.h"
 
-#include "common/conf.h"
+#include "conf/conf.h"
 
-#include "cluster_conf.h"
+#include "conf/cluster_conf.h"
 
 #define CLUSTER_TRANSPORT_DEFAULT "tcp"
 

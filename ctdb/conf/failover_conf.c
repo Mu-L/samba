@@ -21,9 +21,9 @@
 
 #include "lib/util/debug.h"
 
-#include "common/conf.h"
+#include "conf/conf.h"
 
-#include "failover/failover_conf.h"
+#include "conf/failover_conf.h"
 
 static bool check_static_boolean_change(const char *key,
 					bool old_value,
