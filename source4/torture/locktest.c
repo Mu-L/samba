@@ -162,10 +162,10 @@ static struct smbcli_state *connect_one(struct tevent_context *ev,
 		printf("\\\\%s\\%s\n", server, share);
 		status = smbcli_full_connection(NULL, &c, 
 						server, 
-						lpcfg_smb_ports(lp_ctx),
 						share, NULL,
 						lpcfg_socket_options(lp_ctx),
-						servers[snum], 
+						servers[snum],
+						lp_ctx,
 						lpcfg_resolve_context(lp_ctx),
 						ev, &options, &session_options,
 						lpcfg_gensec_settings(mem_ctx, lp_ctx));

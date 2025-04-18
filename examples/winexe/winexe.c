@@ -32,6 +32,7 @@
 #include "librpc/gen_ndr/ndr_svcctl_c.h"
 #include "rpc_client/cli_pipe.h"
 #include "libcli/smb/smbXcli_base.h"
+#include "libsmb/smbsock_connect.h"
 #include "libcli/util/werror.h"
 #include "lib/async_req/async_sock.h"
 #include "lib/cmdline/cmdline.h"
@@ -282,7 +283,7 @@ static void parse_args(int argc, const char *argv[],
 
 static NTSTATUS winexe_svc_upload(
 	const char *hostname,
-	int port,
+	const struct smb_transports *transports,
 	const char *service_filename,
 	const DATA_BLOB *svc32_exe,
 	const DATA_BLOB *svc64_exe,
@@ -300,7 +301,7 @@ static NTSTATUS winexe_svc_upload(
 		NULL,
 		hostname,
 		NULL,
-		port,
+		transports,
 		"ADMIN$",
 		"?????",
 		credentials,
@@ -385,7 +386,7 @@ done:
 static NTSTATUS winexe_svc_install(
 	struct cli_state *cli,
 	const char *hostname,
-	int port,
+	const struct smb_transports *transports,
 	const char *service_name,
 	const char *service_filename,
 	const DATA_BLOB *svc32_exe,
@@ -600,7 +601,7 @@ static NTSTATUS winexe_svc_install(
 	if (need_start) {
 		status = winexe_svc_upload(
 			hostname,
-			port,
+			transports,
 			service_filename,
 			svc32_exe,
 			svc64_exe,
@@ -1836,6 +1837,7 @@ int main(int argc, char *argv[])
 #else
 	const DATA_BLOB *winexesvc64_exe = NULL;
 #endif
+	struct smb_transports ts;
 	NTSTATUS status;
 	int ret = 1;
 	int return_code = 0;
@@ -1857,13 +1859,14 @@ int main(int argc, char *argv[])
 		goto done;
 	}
 
+	ts = smbsock_transports_from_port(options.port);
 	status = cli_full_connection_creds(
 		talloc_tos(),
 		&cli,
 		lp_netbios_name(),
 		options.hostname,
 		NULL,
-		options.port,
+		&ts,
 		"IPC$",
 		"IPC",
 		options.credentials,
@@ -1878,7 +1881,7 @@ int main(int argc, char *argv[])
 	status = winexe_svc_install(
 		cli,
 		options.hostname,
-		options.port,
+		&ts,
 		service_name,
 		service_filename,
 		winexesvc32_exe,

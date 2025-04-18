@@ -42,7 +42,6 @@ struct smb2_connect_state {
 	const char *host;
 	const char *share;
 	const char *unc;
-	const char **ports;
 	const char *socket_options;
 	struct nbt_name calling, called;
 	struct gensec_settings *gensec_settings;
@@ -62,8 +61,8 @@ static void smb2_connect_socket_done(struct composite_context *creq);
 struct tevent_req *smb2_connect_send(TALLOC_CTX *mem_ctx,
 				     struct tevent_context *ev,
 				     const char *host,
-				     const char **ports,
 				     const char *share,
+				     struct loadparm_context *lp_ctx,
 				     struct resolve_context *resolve_ctx,
 				     struct cli_credentials *credentials,
 				     bool fallback_to_anonymous,
@@ -76,7 +75,6 @@ struct tevent_req *smb2_connect_send(TALLOC_CTX *mem_ctx,
 	struct tevent_req *req;
 	struct smb2_connect_state *state;
 	struct composite_context *creq;
-	static const char *default_ports[] = { "445", "139", NULL };
 	enum smb_encryption_setting encryption_state =
 		cli_credentials_get_smb_encryption(credentials);
 
@@ -92,15 +90,10 @@ struct tevent_req *smb2_connect_send(TALLOC_CTX *mem_ctx,
 	state->previous_session_id = previous_session_id;
 	state->options = *options;
 	state->host = host;
-	state->ports = ports;
 	state->share = share;
 	state->resolve_ctx = resolve_ctx;
 	state->socket_options = socket_options;
 	state->gensec_settings = gensec_settings;
-
-	if (state->ports == NULL) {
-		state->ports = default_ports;
-	}
 
 	if (encryption_state >= SMB_ENCRYPTION_DESIRED) {
 		state->options.signing = SMB_SIGNING_REQUIRED;
@@ -137,8 +130,8 @@ struct tevent_req *smb2_connect_send(TALLOC_CTX *mem_ctx,
 		return req;
 	}
 
-	creq = smbcli_sock_connect_send(state, NULL, state->ports,
-					state->host, state->resolve_ctx,
+	creq = smbcli_sock_connect_send(state, NULL, &state->options,
+					state->host, lp_ctx, state->resolve_ctx,
 					state->ev, state->socket_options,
 					&state->calling,
 					&state->called);
@@ -401,8 +394,8 @@ NTSTATUS smb2_connect_recv(struct tevent_req *req,
 */
 NTSTATUS smb2_connect_ext(TALLOC_CTX *mem_ctx,
 			  const char *host,
-			  const char **ports,
 			  const char *share,
+			  struct loadparm_context *lp_ctx,
 			  struct resolve_context *resolve_ctx,
 			  struct cli_credentials *credentials,
 			  struct smbXcli_conn **existing_conn,
@@ -425,8 +418,8 @@ NTSTATUS smb2_connect_ext(TALLOC_CTX *mem_ctx,
 	subreq = smb2_connect_send(frame,
 				   ev,
 				   host,
-				   ports,
 				   share,
+				   lp_ctx,
 				   resolve_ctx,
 				   credentials,
 				   false, /* fallback_to_anonymous */
@@ -460,8 +453,8 @@ NTSTATUS smb2_connect_ext(TALLOC_CTX *mem_ctx,
 
 NTSTATUS smb2_connect(TALLOC_CTX *mem_ctx,
 		      const char *host,
-		      const char **ports,
 		      const char *share,
+		      struct loadparm_context *lp_ctx,
 		      struct resolve_context *resolve_ctx,
 		      struct cli_credentials *credentials,
 		      struct smb2_tree **tree,
@@ -472,7 +465,7 @@ NTSTATUS smb2_connect(TALLOC_CTX *mem_ctx,
 {
 	NTSTATUS status;
 
-	status = smb2_connect_ext(mem_ctx, host, ports, share, resolve_ctx,
+	status = smb2_connect_ext(mem_ctx, host, share, lp_ctx, resolve_ctx,
 				  credentials,
 				  NULL, /* existing_conn */
 				  0, /* previous_session_id */

@@ -241,8 +241,9 @@ NTSTATUS receive_smb_raw(int fd, char *buffer, size_t buflen, unsigned int timeo
  * Return sock or -errno
  */
 
-int open_socket_in(
+int open_socket_in_protocol(
 	int type,
+	int protocol,
 	const struct sockaddr_storage *paddr,
 	uint16_t port,
 	bool rebind)
@@ -271,7 +272,7 @@ int open_socket_in(
 		goto fail;
 	}
 
-	sock = socket(addr.u.ss.ss_family, type, 0 );
+	sock = socket(addr.u.ss.ss_family, type, protocol);
 	if (sock == -1) {
 		ret = -errno;
 		DBG_DEBUG("socket() failed: %s\n", strerror(errno));
@@ -353,11 +354,19 @@ fail:
 	return ret;
  }
 
+int open_socket_in(
+	int type,
+	const struct sockaddr_storage *paddr,
+	uint16_t port,
+	bool rebind)
+{
+	return open_socket_in_protocol(type, 0, paddr, port, rebind);
+}
+
 struct open_socket_out_state {
 	int fd;
 	struct tevent_context *ev;
-	struct sockaddr_storage ss;
-	socklen_t salen;
+	struct samba_sockaddr saddr;
 	uint16_t port;
 	struct tevent_req *connect_subreq;
 };
@@ -395,6 +404,7 @@ static void open_socket_out_cleanup(struct tevent_req *req,
 
 struct tevent_req *open_socket_out_send(TALLOC_CTX *mem_ctx,
 					struct tevent_context *ev,
+					int protocol,
 					const struct sockaddr_storage *pss,
 					uint16_t port,
 					int timeout)
@@ -410,11 +420,15 @@ struct tevent_req *open_socket_out_send(TALLOC_CTX *mem_ctx,
 		return NULL;
 	}
 	state->ev = ev;
-	state->ss = *pss;
+	state->saddr = (struct samba_sockaddr) {
+		.sa_socklen = -1,
+		.u = {
+			.ss = *pss,
+		},
+	};
 	state->port = port;
-	state->salen = -1;
 
-	state->fd = socket(state->ss.ss_family, SOCK_STREAM, 0);
+	state->fd = socket(state->saddr.u.sa.sa_family, SOCK_STREAM, protocol);
 	if (state->fd == -1) {
 		status = map_nt_error_from_unix(errno);
 		tevent_req_nterror(req, status);
@@ -433,33 +447,32 @@ struct tevent_req *open_socket_out_send(TALLOC_CTX *mem_ctx,
 #if defined(HAVE_IPV6)
 	if (pss->ss_family == AF_INET6) {
 		struct sockaddr_in6 *psa6;
-		psa6 = (struct sockaddr_in6 *)&state->ss;
+		psa6 = &state->saddr.u.in6;
 		psa6->sin6_port = htons(port);
 		if (psa6->sin6_scope_id == 0
 		    && IN6_IS_ADDR_LINKLOCAL(&psa6->sin6_addr)) {
-			setup_linklocal_scope_id(
-				(struct sockaddr *)&(state->ss));
+			setup_linklocal_scope_id(&state->saddr.u.sa);
 		}
-		state->salen = sizeof(struct sockaddr_in6);
+		state->saddr.sa_socklen = sizeof(struct sockaddr_in6);
 	}
 #endif
 	if (pss->ss_family == AF_INET) {
 		struct sockaddr_in *psa;
-		psa = (struct sockaddr_in *)&state->ss;
+		psa = &state->saddr.u.in;
 		psa->sin_port = htons(port);
-		state->salen = sizeof(struct sockaddr_in);
+		state->saddr.sa_socklen = sizeof(struct sockaddr_in);
 	}
 
 	if (pss->ss_family == AF_UNIX) {
-		state->salen = sizeof(struct sockaddr_un);
+		state->saddr.sa_socklen = sizeof(struct sockaddr_un);
 	}
 
-	print_sockaddr(addr, sizeof(addr), &state->ss);
+	print_sockaddr(addr, sizeof(addr), &state->saddr.u.ss);
 	DEBUG(3,("Connecting to %s at port %u\n", addr,	(unsigned int)port));
 
 	state->connect_subreq = async_connect_send(
-		state, state->ev, state->fd, (struct sockaddr *)&state->ss,
-		state->salen, NULL, NULL, NULL);
+		state, state->ev, state->fd, &state->saddr.u.sa,
+		state->saddr.sa_socklen, NULL, NULL, NULL);
 	if (tevent_req_nomem(state->connect_subreq, NULL)) {
 		return tevent_req_post(req, ev);
 	}
@@ -527,7 +540,7 @@ NTSTATUS open_socket_out(const struct sockaddr_storage *pss, uint16_t port,
 		goto fail;
 	}
 
-	req = open_socket_out_send(frame, ev, pss, port, timeout);
+	req = open_socket_out_send(frame, ev, IPPROTO_TCP, pss, port, timeout);
 	if (req == NULL) {
 		goto fail;
 	}
@@ -539,104 +552,6 @@ NTSTATUS open_socket_out(const struct sockaddr_storage *pss, uint16_t port,
  fail:
 	TALLOC_FREE(frame);
 	return status;
-}
-
-struct open_socket_out_defer_state {
-	struct tevent_context *ev;
-	struct sockaddr_storage ss;
-	uint16_t port;
-	int timeout;
-	int fd;
-};
-
-static void open_socket_out_defer_waited(struct tevent_req *subreq);
-static void open_socket_out_defer_connected(struct tevent_req *subreq);
-
-struct tevent_req *open_socket_out_defer_send(TALLOC_CTX *mem_ctx,
-					      struct tevent_context *ev,
-					      struct timeval wait_time,
-					      const struct sockaddr_storage *pss,
-					      uint16_t port,
-					      int timeout)
-{
-	struct tevent_req *req, *subreq;
-	struct open_socket_out_defer_state *state;
-
-	req = tevent_req_create(mem_ctx, &state,
-				struct open_socket_out_defer_state);
-	if (req == NULL) {
-		return NULL;
-	}
-	state->ev = ev;
-	state->ss = *pss;
-	state->port = port;
-	state->timeout = timeout;
-
-	subreq = tevent_wakeup_send(
-		state, ev,
-		timeval_current_ofs(wait_time.tv_sec, wait_time.tv_usec));
-	if (subreq == NULL) {
-		goto fail;
-	}
-	tevent_req_set_callback(subreq, open_socket_out_defer_waited, req);
-	return req;
- fail:
-	TALLOC_FREE(req);
-	return NULL;
-}
-
-static void open_socket_out_defer_waited(struct tevent_req *subreq)
-{
-	struct tevent_req *req = tevent_req_callback_data(
-		subreq, struct tevent_req);
-	struct open_socket_out_defer_state *state = tevent_req_data(
-		req, struct open_socket_out_defer_state);
-	bool ret;
-
-	ret = tevent_wakeup_recv(subreq);
-	TALLOC_FREE(subreq);
-	if (!ret) {
-		tevent_req_nterror(req, NT_STATUS_INTERNAL_ERROR);
-		return;
-	}
-
-	subreq = open_socket_out_send(state, state->ev, &state->ss,
-				      state->port, state->timeout);
-	if (tevent_req_nomem(subreq, req)) {
-		return;
-	}
-	tevent_req_set_callback(subreq, open_socket_out_defer_connected, req);
-}
-
-static void open_socket_out_defer_connected(struct tevent_req *subreq)
-{
-	struct tevent_req *req = tevent_req_callback_data(
-		subreq, struct tevent_req);
-	struct open_socket_out_defer_state *state = tevent_req_data(
-		req, struct open_socket_out_defer_state);
-	NTSTATUS status;
-
-	status = open_socket_out_recv(subreq, &state->fd);
-	TALLOC_FREE(subreq);
-	if (!NT_STATUS_IS_OK(status)) {
-		tevent_req_nterror(req, status);
-		return;
-	}
-	tevent_req_done(req);
-}
-
-NTSTATUS open_socket_out_defer_recv(struct tevent_req *req, int *pfd)
-{
-	struct open_socket_out_defer_state *state = tevent_req_data(
-		req, struct open_socket_out_defer_state);
-	NTSTATUS status;
-
-	if (tevent_req_is_nterror(req, &status)) {
-		return status;
-	}
-	*pfd = state->fd;
-	state->fd = -1;
-	return NT_STATUS_OK;
 }
 
 /*******************************************************************

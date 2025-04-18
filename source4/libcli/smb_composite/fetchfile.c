@@ -123,6 +123,7 @@ static void fetchfile_composite_handler(struct composite_context *creq)
 }
 
 struct composite_context *smb_composite_fetchfile_send(struct smb_composite_fetchfile *io,
+						       struct loadparm_context *lp_ctx,
 						       struct tevent_context *event_ctx)
 {
 	struct composite_context *c;
@@ -140,7 +141,6 @@ struct composite_context *smb_composite_fetchfile_send(struct smb_composite_fetc
 	state->io = io;
 
 	state->connect->in.dest_host    = io->in.dest_host;
-	state->connect->in.dest_ports   = io->in.ports;
 	state->connect->in.socket_options = io->in.socket_options;
 	state->connect->in.called_name  = io->in.called_name;
 	state->connect->in.service      = io->in.service;
@@ -153,7 +153,7 @@ struct composite_context *smb_composite_fetchfile_send(struct smb_composite_fetc
 	state->connect->in.options	= io->in.options;
 	state->connect->in.session_options = io->in.session_options;
 
-	state->creq = smb_composite_connect_send(state->connect, state, 
+	state->creq = smb_composite_connect_send(state->connect, state, lp_ctx,
 						 io->in.resolve_ctx, event_ctx);
 	if (state->creq == NULL) goto failed;
 
@@ -184,11 +184,4 @@ NTSTATUS smb_composite_fetchfile_recv(struct composite_context *c,
 
 	talloc_free(c);
 	return status;
-}
-
-NTSTATUS smb_composite_fetchfile(struct smb_composite_fetchfile *io,
-				 TALLOC_CTX *mem_ctx)
-{
-	struct composite_context *c = smb_composite_fetchfile_send(io, NULL);
-	return smb_composite_fetchfile_recv(c, mem_ctx);
 }

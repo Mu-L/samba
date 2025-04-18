@@ -35,7 +35,6 @@ struct smb_connect_nego_state {
 	struct smbcli_options options;
 	const char *dest_hostname;
 	const char *dest_address;
-	const char **dest_ports;
 	const char *target_hostname;
 	struct nbt_name calling, called;
 	struct smbXcli_conn *conn;
@@ -46,12 +45,12 @@ static void smb_connect_nego_nego_done(struct tevent_req *subreq);
 
 struct tevent_req *smb_connect_nego_send(TALLOC_CTX *mem_ctx,
 					 struct tevent_context *ev,
+					 struct loadparm_context *lp_ctx,
 					 struct resolve_context *resolve_ctx,
 					 const struct smbcli_options *options,
 					 const char *socket_options,
 					 const char *dest_hostname,
 					 const char *dest_address, /* optional */
-					 const char **dest_ports,
 					 const char *target_hostname,
 					 const char *called_name,
 					 const char *calling_name)
@@ -71,7 +70,6 @@ struct tevent_req *smb_connect_nego_send(TALLOC_CTX *mem_ctx,
 	state->socket_options = socket_options;
 	state->dest_hostname = dest_hostname;
 	state->dest_address = dest_address;
-	state->dest_ports = dest_ports;
 	state->target_hostname = target_hostname;
 
 	make_nbt_name_client(&state->calling, calling_name);
@@ -84,8 +82,9 @@ struct tevent_req *smb_connect_nego_send(TALLOC_CTX *mem_ctx,
 
 	creq = smbcli_sock_connect_send(state,
 					state->dest_address,
-					state->dest_ports,
+					&state->options,
 					state->dest_hostname,
+					lp_ctx,
 					state->resolve_ctx,
 					state->ev,
 					state->socket_options,
@@ -120,9 +119,6 @@ static void smb_connect_nego_connect_done(struct composite_context *creq)
 		return;
 	}
 
-	TALLOC_FREE(sock->event.fde);
-	TALLOC_FREE(sock->event.te);
-
 	smb1_capabilities = 0;
 	smb1_capabilities |= CAP_LARGE_FILES;
 	smb1_capabilities |= CAP_NT_SMBS | CAP_RPC_REMOTE_APIS;
@@ -148,7 +144,7 @@ static void smb_connect_nego_connect_done(struct composite_context *creq)
 	}
 
 	state->conn = smbXcli_conn_create(state,
-					  sock->sock->fd,
+					  sock->sockfd,
 					  state->target_hostname,
 					  state->options.signing,
 					  smb1_capabilities,
@@ -158,7 +154,7 @@ static void smb_connect_nego_connect_done(struct composite_context *creq)
 	if (tevent_req_nomem(state->conn, req)) {
 		return;
 	}
-	sock->sock->fd = -1;
+	sock->sockfd = -1;
 	TALLOC_FREE(sock);
 
 	subreq = smbXcli_negprot_send(state,

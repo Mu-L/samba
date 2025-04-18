@@ -99,9 +99,10 @@ static int fork_tcon_client(struct torture_context *tctx,
 		NTSTATUS status;
 
 		status = smbcli_full_connection(NULL, &cli,
-				host, lpcfg_smb_ports(tctx->lp_ctx), share,
+				host, share,
 				NULL, lpcfg_socket_options(tctx->lp_ctx),
 				samba_cmdline_get_creds(),
+				tctx->lp_ctx,
 				lpcfg_resolve_context(tctx->lp_ctx),
 				tctx->ev, &options, &session_options,
 				lpcfg_gensec_settings(tctx, tctx->lp_ctx));

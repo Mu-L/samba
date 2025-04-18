@@ -287,7 +287,6 @@ static NTSTATUS cvfs_connect(struct ntvfs_module_context *ntvfs,
 
 	/* connect to the server, using the smbd event context */
 	io.in.dest_host = host;
-	io.in.dest_ports = lpcfg_smb_ports(ntvfs->ctx->lp_ctx);
 	io.in.socket_options = lpcfg_socket_options(ntvfs->ctx->lp_ctx);
 	io.in.called_name = host;
 	io.in.existing_conn = NULL;
@@ -305,6 +304,7 @@ static NTSTATUS cvfs_connect(struct ntvfs_module_context *ntvfs,
 	}
 
 	creq = smb_composite_connect_send(&io, p,
+					  ntvfs->ctx->lp_ctx,
 					  lpcfg_resolve_context(ntvfs->ctx->lp_ctx),
 					  ntvfs->ctx->event_ctx);
 	status = smb_composite_connect_recv(creq, p);

@@ -35,10 +35,10 @@ bool torture_rpc_join(struct torture_context *torture)
 	lpcfg_smbcli_session_options(torture->lp_ctx, &session_options);
 
 	status = smbcli_full_connection(tj, &cli, host,
-					lpcfg_smb_ports(torture->lp_ctx),
 					"IPC$", NULL,
 					lpcfg_socket_options(torture->lp_ctx),
 					machine_account,
+					torture->lp_ctx,
 					lpcfg_resolve_context(torture->lp_ctx),
 					torture->ev, &options, &session_options,
 					lpcfg_gensec_settings(torture, torture->lp_ctx));
@@ -63,10 +63,10 @@ bool torture_rpc_join(struct torture_context *torture)
 	}
 
 	status = smbcli_full_connection(tj, &cli, host,
-					lpcfg_smb_ports(torture->lp_ctx),
 					"IPC$", NULL,
 					lpcfg_socket_options(torture->lp_ctx),
 					machine_account,
+					torture->lp_ctx,
 					lpcfg_resolve_context(torture->lp_ctx),
 					torture->ev, &options, &session_options,
 					lpcfg_gensec_settings(torture, torture->lp_ctx));

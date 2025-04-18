@@ -88,6 +88,7 @@
 #include "lib/util/string_wrappers.h"
 #include "lib/global_contexts.h"
 #include "librpc/gen_ndr/ndr_winbind_c.h"
+#include "libsmb/smbsock_connect.h"
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_WINBIND
@@ -1440,6 +1441,10 @@ static bool connect_preferred_dc(TALLOC_CTX *mem_ctx,
 				 int *fd)
 {
 	char *saf_servername = NULL;
+	struct smb_transports ts =
+		smb_transports_parse("client smb transports",
+			lp_client_smb_transports());
+	struct loadparm_context *lp_ctx = NULL;
 	NTSTATUS status;
 	bool ok;
 
@@ -1507,7 +1512,13 @@ static bool connect_preferred_dc(TALLOC_CTX *mem_ctx,
 		return false;
 	}
 
-	status = smbsock_connect(&domain->dcaddr, 0,
+	lp_ctx = loadparm_init_s3(talloc_tos(), loadparm_s3_helpers());
+	if (lp_ctx == NULL) {
+		DBG_ERR("loadparm_init_s3 failed\n");
+		return false;
+	}
+
+	status = smbsock_connect(&domain->dcaddr, lp_ctx, &ts,
 				 domain->dcname, -1, NULL, -1,
 				 fd, NULL, 10);
 	if (!NT_STATUS_IS_OK(status)) {
@@ -1540,6 +1551,7 @@ static bool find_dc(TALLOC_CTX *mem_ctx,
 		    uint32_t request_flags,
 		    int *fd)
 {
+	struct loadparm_context *lp_ctx = NULL;
 	struct dc_name_ip *dcs = NULL;
 	int num_dcs = 0;
 
@@ -1548,7 +1560,9 @@ static bool find_dc(TALLOC_CTX *mem_ctx,
 
 	struct sockaddr_storage *addrs = NULL;
 	int num_addrs = 0;
-
+	struct smb_transports ts =
+		smb_transports_parse("client smb transports",
+			lp_client_smb_transports());
 	int i;
 	size_t fd_index;
 
@@ -1566,6 +1580,12 @@ static bool find_dc(TALLOC_CTX *mem_ctx,
 	}
 
 	if (domain->force_dc) {
+		return false;
+	}
+
+	lp_ctx = loadparm_init_s3(talloc_tos(), loadparm_s3_helpers());
+	if (lp_ctx == NULL) {
+		DBG_ERR("loadparm_init_s3 failed\n");
 		return false;
 	}
 
@@ -1597,7 +1617,8 @@ static bool find_dc(TALLOC_CTX *mem_ctx,
 		"(timeout of 10 sec for each DC).\n",
 		num_dcs);
 	status = smbsock_any_connect(addrs, dcnames, NULL, NULL, NULL,
-				     num_addrs, 0, 10, fd, &fd_index, NULL);
+				     num_addrs, lp_ctx, &ts,
+				     10, fd, &fd_index, NULL);
 	if (!NT_STATUS_IS_OK(status)) {
 		for (i=0; i<num_dcs; i++) {
 			char ab[INET6_ADDRSTRLEN];

@@ -184,10 +184,11 @@ _PUBLIC_ NTSTATUS smb_tree_disconnect(struct smbcli_tree *tree)
 */
 NTSTATUS smbcli_tree_full_connection(TALLOC_CTX *parent_ctx,
 				     struct smbcli_tree **ret_tree,
-				     const char *dest_host, const char **dest_ports,
+				     const char *dest_host,
 				     const char *service, const char *service_type,
 					 const char *socket_options,
 				     struct cli_credentials *credentials,
+				     struct loadparm_context *lp_ctx,
 				     struct resolve_context *resolve_ctx,
 				     struct tevent_context *ev,
 				     struct smbcli_options *options,
@@ -202,7 +203,6 @@ NTSTATUS smbcli_tree_full_connection(TALLOC_CTX *parent_ctx,
 	}
 
 	io.in.dest_host = dest_host;
-	io.in.dest_ports = dest_ports;
 	io.in.socket_options = socket_options;
 	io.in.called_name = strupper_talloc(tmp_ctx, dest_host);
 	io.in.service = service;
@@ -219,7 +219,7 @@ NTSTATUS smbcli_tree_full_connection(TALLOC_CTX *parent_ctx,
 	io.in.options = *options;
 	io.in.session_options = *session_options;
 
-	status = smb_composite_connect(&io, parent_ctx, resolve_ctx, ev);
+	status = smb_composite_connect(&io, parent_ctx, lp_ctx, resolve_ctx, ev);
 	if (NT_STATUS_IS_OK(status)) {
 		*ret_tree = io.out.tree;
 	}

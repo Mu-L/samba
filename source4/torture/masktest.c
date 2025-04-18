@@ -71,10 +71,11 @@ static char *reg_test(struct smbcli_state *cli, TALLOC_CTX *mem_ctx, const char 
 /***************************************************** 
 return a connection to a server
 *******************************************************/
-static struct smbcli_state *connect_one(struct resolve_context *resolve_ctx, 
+static struct smbcli_state *connect_one(struct loadparm_context *lp_ctx,
+					struct resolve_context *resolve_ctx,
 					struct tevent_context *ev,
 					TALLOC_CTX *mem_ctx,
-					char *share, const char **ports,
+					char *share,
 					const char *socket_options,
 					struct smbcli_options *options,
 					struct smbcli_session_options *session_options,
@@ -96,10 +97,10 @@ static struct smbcli_state *connect_one(struct resolve_context *resolve_ctx,
 
 	status = smbcli_full_connection(NULL, &c,
 					server, 
-					ports,
 					share, NULL,
 					socket_options,
 					creds,
+					lp_ctx,
 					resolve_ctx, ev,
 					options, session_options,
 					gensec_settings);
@@ -396,8 +397,9 @@ int main(int argc, const char *argv[])
 	lpcfg_smbcli_options(lp_ctx, &options);
 	lpcfg_smbcli_session_options(lp_ctx, &session_options);
 
-	cli = connect_one(lpcfg_resolve_context(lp_ctx), ev, mem_ctx, share,
-			  lpcfg_smb_ports(lp_ctx), lpcfg_socket_options(lp_ctx),
+	cli = connect_one(lp_ctx, lpcfg_resolve_context(lp_ctx),
+			  ev, mem_ctx, share,
+			  lpcfg_socket_options(lp_ctx),
 			  &options, &session_options,
 			  lpcfg_gensec_settings(mem_ctx, lp_ctx));
 	if (!cli) {

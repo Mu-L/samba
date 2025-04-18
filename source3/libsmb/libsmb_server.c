@@ -33,6 +33,7 @@
 #include "libcli/security/security.h"
 #include "libsmb/nmblib.h"
 #include "../libcli/smb/smbXcli_base.h"
+#include "libsmb/smbsock_connect.h"
 
 /*
  * Check a server for being alive and well.
@@ -348,7 +349,7 @@ SMBC_server_internal(TALLOC_CTX *ctx,
             SMBCCTX *context,
             bool connect_if_not_found,
             const char *server,
-            uint16_t port,
+            const struct smb_transports *transports,
             const char *share,
             char **pp_workgroup,
             char **pp_username,
@@ -369,12 +370,34 @@ SMBC_server_internal(TALLOC_CTX *ctx,
 	struct smbXcli_tcon *tcon = NULL;
 	int signing_state = SMB_SIGNING_DEFAULT;
 	struct cli_credentials *creds = NULL;
+	struct smb_transports ats = *transports;
+	uint8_t ati;
+	const struct smb_transports *ts = &ats;
+	struct smb_transports ots = { .num_transports = 0, };
+	struct smb_transports nts = { .num_transports = 0, };
 
 	*in_cache = false;
 
 	if (server[0] == 0) {
 		errno = EPERM;
 		return NULL;
+	}
+
+	for (ati = 0; ati < ats.num_transports; ati++) {
+		const struct smb_transport *at =
+			&ats.transports[ati];
+
+		if (at->type == SMB_TRANSPORT_TYPE_NBT) {
+			struct smb_transport *nt =
+				&nts.transports[nts.num_transports];
+			*nt = *at;
+			nts.num_transports += 1;
+		} else {
+			struct smb_transport *ot =
+				&ots.transports[ots.num_transports];
+			*ot = *at;
+			ots.num_transports += 1;
+		}
 	}
 
         /* Look for a cached connection */
@@ -524,15 +547,17 @@ SMBC_server_internal(TALLOC_CTX *ctx,
 		signing_state = SMB_SIGNING_REQUIRED;
 	}
 
-	if (port == 0) {
+	if (nts.num_transports != 0 && ots.num_transports != 0) {
 	        if (share == NULL || *share == '\0' || is_ipc) {
 			/*
 			 * Try 139 first for IPC$
 			 */
+			ts = &ots;
+
 			status = cli_connect_nb(NULL,
 						server_n,
 						NULL,
-						NBT_SMB_PORT,
+						&nts,
 						0x20,
 						smbc_getNetbiosName(context),
 						signing_state,
@@ -548,7 +573,7 @@ SMBC_server_internal(TALLOC_CTX *ctx,
 		status = cli_connect_nb(NULL,
 					server_n,
 					NULL,
-					port,
+					ts,
 					0x20,
 					smbc_getNetbiosName(context),
 					signing_state,
@@ -628,7 +653,7 @@ SMBC_server_internal(TALLOC_CTX *ctx,
 				creds)) {
 		cli_shutdown(c);
 		srv = SMBC_server_internal(ctx, context, connect_if_not_found,
-				newserver, port, newshare, pp_workgroup,
+				newserver, &ats, newshare, pp_workgroup,
 				pp_username, pp_password, in_cache);
 		TALLOC_FREE(newserver);
 		TALLOC_FREE(newshare);
@@ -738,9 +763,10 @@ SMBC_server(TALLOC_CTX *ctx,
 {
 	SMBCSRV *srv=NULL;
 	bool in_cache = false;
+	struct smb_transports ts = smbsock_transports_from_port(port);
 
 	srv = SMBC_server_internal(ctx, context, connect_if_not_found,
-			server, port, share, pp_workgroup,
+			server, &ts, share, pp_workgroup,
 			pp_username, pp_password, &in_cache);
 
 	if (!srv) {
@@ -794,6 +820,7 @@ SMBC_attr_server(TALLOC_CTX *ctx,
         NTSTATUS nt_status;
 	SMBCSRV *srv=NULL;
 	SMBCSRV *ipc_srv=NULL;
+	struct smb_transports ts = smbsock_transports_from_port(port);
 
 	/*
 	 * Use srv->cli->desthost and srv->cli->share instead of
@@ -849,7 +876,7 @@ SMBC_attr_server(TALLOC_CTX *ctx,
 						      lp_netbios_name(),
 						      server,
 						      NULL,
-						      0,
+						      &ts,
 						      "IPC$",
 						      "?????",
 						      creds,

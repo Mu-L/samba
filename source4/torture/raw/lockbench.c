@@ -189,7 +189,6 @@ static void reopen_connection(struct tevent_context *ev, struct tevent_timer *te
 	}
 
 	io->in.dest_host    = state->dest_host;
-	io->in.dest_ports   = state->dest_ports;
 	io->in.gensec_settings = lpcfg_gensec_settings(state->mem_ctx, state->tctx->lp_ctx);
 	io->in.socket_options = lpcfg_socket_options(state->tctx->lp_ctx);
 	io->in.called_name  = state->called_name;
@@ -206,6 +205,7 @@ static void reopen_connection(struct tevent_context *ev, struct tevent_timer *te
 	state->tree = NULL;
 
 	ctx = smb_composite_connect_send(io, state->mem_ctx,
+					 state->tctx->lp_ctx,
 					 lpcfg_resolve_context(state->tctx->lp_ctx),
 					 state->ev);
 	if (ctx == NULL) {

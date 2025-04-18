@@ -724,3 +724,58 @@ NTSTATUS smb311_capabilities_check(const struct smb311_capabilities *c,
 
 	return NT_STATUS_OK;
 }
+
+struct smb_transports smb_transports_parse(const char *param_name,
+					   const char * const *transports)
+{
+	struct smb_transports ts = {
+		.num_transports = 0,
+	};
+	size_t ti;
+
+	for (ti = 0; transports != NULL && transports[ti] != NULL; ti++) {
+		struct smb_transport t = {
+			.type = SMB_TRANSPORT_TYPE_UNKNOWN,
+		};
+		bool ignore = false;
+		size_t ei;
+		bool ok = false;
+
+		if (ts.num_transports >= SMB_TRANSPORTS_MAX_TRANSPORTS) {
+			DBG_ERR("WARNING: Ignoring trailing value '%s' for parameter '%s'\n",
+				transports[ti], param_name);
+			continue;
+		}
+
+		ok = smb_transport_parse(transports[ti], &t);
+		if (!ok) {
+			DBG_ERR("WARNING: Ignoring invalid value '%s' for parameter '%s'\n",
+				transports[ti], param_name);
+			continue;
+		}
+
+		for (ei = 0; ei < ts.num_transports; ei++) {
+			if (t.type != ts.transports[ei].type) {
+				continue;
+			}
+
+			if (t.port != ts.transports[ei].port) {
+				continue;
+			}
+
+			ignore = true;
+			break;
+		}
+
+		if (ignore) {
+			DBG_ERR("WARNING: Ignoring duplicate value '%s' for parameter '%s'\n",
+				transports[ti], param_name);
+			continue;
+		}
+
+		ts.transports[ts.num_transports] = t;
+		ts.num_transports += 1;
+	}
+
+	return ts;
+}

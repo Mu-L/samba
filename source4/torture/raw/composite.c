@@ -153,7 +153,6 @@ static bool test_fetchfile(struct torture_context *tctx, struct smbcli_state *cl
 	ZERO_STRUCT(io2);
 
 	io2.in.dest_host = torture_setting_string(tctx, "host", NULL);
-	io2.in.ports = lpcfg_smb_ports(tctx->lp_ctx);
 	io2.in.called_name = torture_setting_string(tctx, "host", NULL);
 	io2.in.service = torture_setting_string(tctx, "share", NULL);
 	io2.in.service_type = "A:";
@@ -173,7 +172,7 @@ static bool test_fetchfile(struct torture_context *tctx, struct smbcli_state *cl
 	c = talloc_array(tctx, struct composite_context *, torture_numops);
 
 	for (i=0; i<torture_numops; i++) {
-		c[i] = smb_composite_fetchfile_send(&io2, event_ctx);
+		c[i] = smb_composite_fetchfile_send(&io2, tctx->lp_ctx, event_ctx);
 		c[i]->async.fn = loadfile_complete;
 		c[i]->async.private_data = count;
 	}
@@ -343,7 +342,6 @@ static bool test_fsinfo(struct torture_context *tctx, struct smbcli_state *cli)
 	bool ret = true;
 
 	io1.in.dest_host = torture_setting_string(tctx, "host", NULL);
-	io1.in.dest_ports = lpcfg_smb_ports(tctx->lp_ctx);
 	io1.in.socket_options = lpcfg_socket_options(tctx->lp_ctx);
 	io1.in.called_name = torture_setting_string(tctx, "host", NULL);
 	io1.in.service = torture_setting_string(tctx, "share", NULL);
@@ -360,7 +358,8 @@ static bool test_fsinfo(struct torture_context *tctx, struct smbcli_state *cli)
 	c = talloc_array(tctx, struct composite_context *, torture_numops);
 
 	for (i=0; i<torture_numops; i++) {
-		c[i] = smb_composite_fsinfo_send(cli->tree, &io1, lpcfg_resolve_context(tctx->lp_ctx), event_ctx);
+		c[i] = smb_composite_fsinfo_send(cli->tree, &io1, tctx->lp_ctx,
+				lpcfg_resolve_context(tctx->lp_ctx), event_ctx);
 		torture_assert(tctx, c[i], "smb_composite_fsinfo_send failed!");
 		c[i]->async.fn = loadfile_complete;
 		c[i]->async.private_data = count;

@@ -85,18 +85,21 @@ NTSTATUS cli_tdis(struct cli_state *cli);
 NTSTATUS cli_connect_nb(TALLOC_CTX *mem_ctx,
 			const char *host,
 			const struct sockaddr_storage *dest_ss,
-			uint16_t port,
+			const struct smb_transports *transports,
 			int name_type,
 			const char *myname,
 			enum smb_signing_setting signing_state,
 			int flags,
-			struct cli_state **pcli);
+			struct cli_state **pcli)
+	NONNULL(4) NONNULL(9);
 NTSTATUS cli_start_connection(TALLOC_CTX *mem_ctx,
 			      struct cli_state **output_cli,
 			      const char *my_name,
 			      const char *dest_host,
-			      const struct sockaddr_storage *dest_ss, int port,
-			      enum smb_signing_setting signing_state, int flags);
+			      const struct sockaddr_storage *dest_ss,
+			      const struct smb_transports *transports,
+			      enum smb_signing_setting signing_state, int flags)
+	NONNULL(2) NONNULL(6);
 NTSTATUS cli_smb1_setup_encryption(struct cli_state *cli,
 				   struct cli_credentials *creds);
 
@@ -104,11 +107,13 @@ struct smb2_negotiate_contexts;
 struct tevent_req *cli_full_connection_creds_send(
 	TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 	const char *my_name, const char *dest_host,
-	const struct sockaddr_storage *dest_ss, int port,
+	const struct sockaddr_storage *dest_ss,
+	const struct smb_transports *transports,
 	const char *service, const char *service_type,
 	struct cli_credentials *creds,
 	int flags,
-	struct smb2_negotiate_contexts *negotiate_contexts);
+	struct smb2_negotiate_contexts *negotiate_contexts)
+	NONNULL(2) NONNULL(6);
 NTSTATUS cli_full_connection_creds_recv(struct tevent_req *req,
 					TALLOC_CTX *mem_ctx,
 					struct cli_state **output_cli);
@@ -116,10 +121,12 @@ NTSTATUS cli_full_connection_creds(TALLOC_CTX *mem_ctx,
 				   struct cli_state **output_cli,
 				   const char *my_name,
 				   const char *dest_host,
-				   const struct sockaddr_storage *dest_ss, int port,
+				   const struct sockaddr_storage *dest_ss,
+				   const struct smb_transports *transports,
 				   const char *service, const char *service_type,
 				   struct cli_credentials *creds,
-				   int flags);
+				   int flags)
+	NONNULL(2) NONNULL(6);
 NTSTATUS cli_raw_tcon(struct cli_state *cli,
 		      const char *service, const char *pass, const char *dev,
 		      uint16_t *max_xmit, uint16_t *tid);
@@ -136,9 +143,10 @@ NTSTATUS cli_cm_open(TALLOC_CTX *ctx,
 		     const char *share,
 		     struct cli_credentials *creds,
 		     const struct sockaddr_storage *dest_ss,
-		     int port,
+		     const struct smb_transports *transports,
 		     int name_type,
-		     struct cli_state **pcli);
+		     struct cli_state **pcli)
+	NONNULL(7) NONNULL(9);
 void cli_cm_display(struct cli_state *c);
 struct client_dfs_referral;
 bool cli_dfs_is_already_full_path(struct cli_state *cli, const char *path);

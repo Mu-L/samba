@@ -127,6 +127,7 @@ static void fsinfo_composite_handler(struct composite_context *creq)
 */
 struct composite_context *smb_composite_fsinfo_send(struct smbcli_tree *tree, 
 						    struct smb_composite_fsinfo *io,
+						    struct loadparm_context *lp_ctx,
 						    struct resolve_context *resolve_ctx,
 						    struct tevent_context *event_ctx)
 {
@@ -149,7 +150,6 @@ struct composite_context *smb_composite_fsinfo_send(struct smbcli_tree *tree,
 	if (state->connect == NULL) goto failed;
 
 	state->connect->in.dest_host    = io->in.dest_host;
-	state->connect->in.dest_ports   = io->in.dest_ports;
 	state->connect->in.socket_options = io->in.socket_options;
 	state->connect->in.called_name  = io->in.called_name;
 	state->connect->in.service      = io->in.service;
@@ -167,7 +167,7 @@ struct composite_context *smb_composite_fsinfo_send(struct smbcli_tree *tree,
 	c->private_data = state;
 
 	state->creq = smb_composite_connect_send(state->connect, state,
-			 resolve_ctx, c->event_ctx);
+			 lp_ctx, resolve_ctx, c->event_ctx);
 
 	if (state->creq == NULL) goto failed;
   
@@ -197,18 +197,3 @@ NTSTATUS smb_composite_fsinfo_recv(struct composite_context *c, TALLOC_CTX *mem_
 	talloc_free(c);
 	return status;
 }
-
-
-/*
-  composite fsinfo call - sync interface
-*/
-NTSTATUS smb_composite_fsinfo(struct smbcli_tree *tree, 
-			      TALLOC_CTX *mem_ctx,
-			      struct smb_composite_fsinfo *io,
-			      struct resolve_context *resolve_ctx,
-			      struct tevent_context *ev)
-{
-	struct composite_context *c = smb_composite_fsinfo_send(tree, io, resolve_ctx, ev);
-	return smb_composite_fsinfo_recv(c, mem_ctx);
-}
-

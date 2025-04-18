@@ -62,10 +62,10 @@ static bool smb_connect_print_share(struct torture_context *tctx,
 
 	/* On Windows, SMB1 must be enabled! */
 	status = smbcli_full_connection(tctx, cli, server_name,
-					lpcfg_smb_ports(tctx->lp_ctx),
 					share_name, NULL,
 					lpcfg_socket_options(tctx->lp_ctx),
 					samba_cmdline_get_creds(),
+					tctx->lp_ctx,
 					lpcfg_resolve_context(tctx->lp_ctx),
 					tctx->ev,
 					&smb_options,

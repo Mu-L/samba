@@ -57,7 +57,6 @@ NTSTATUS smb_composite_loadfile(struct smbcli_tree *tree,
 struct smb_composite_fetchfile {
 	struct {
 		const char *dest_host;
-		const char **ports;
 		const char *called_name;
 		const char *service;
 		const char *service_type;
@@ -77,11 +76,10 @@ struct smb_composite_fetchfile {
 };
 
 struct composite_context *smb_composite_fetchfile_send(struct smb_composite_fetchfile *io,
+						       struct loadparm_context *lp_ctx,
 						       struct tevent_context *event_ctx);
 NTSTATUS smb_composite_fetchfile_recv(struct composite_context *c,
 				      TALLOC_CTX *mem_ctx);
-NTSTATUS smb_composite_fetchfile(struct smb_composite_fetchfile *io,
-				 TALLOC_CTX *mem_ctx);
 
 /*
   a composite open/write(s)/close request that saves a whole file from
@@ -110,12 +108,12 @@ NTSTATUS smb_composite_savefile(struct smbcli_tree *tree,
 */
 struct tevent_req *smb_connect_nego_send(TALLOC_CTX *mem_ctx,
 					 struct tevent_context *ev,
+					 struct loadparm_context *lp_ctx,
 					 struct resolve_context *resolve_ctx,
 					 const struct smbcli_options *options,
 					 const char *socket_options,
 					 const char *dest_hostname,
 					 const char *dest_address, /* optional */
-					 const char **dest_ports,
 					 const char *target_hostname,
 					 const char *called_name,
 					 const char *calling_name);
@@ -135,7 +133,6 @@ NTSTATUS smb_connect_nego_recv(struct tevent_req *req,
 struct smb_composite_connect {
 	struct {
 		const char *dest_host;
-		const char **dest_ports;
 		const char *socket_options;
 		const char *called_name;
 		const char *service;
@@ -156,10 +153,12 @@ struct smb_composite_connect {
 
 struct composite_context *smb_composite_connect_send(struct smb_composite_connect *io,
 						     TALLOC_CTX *mem_ctx,
+						     struct loadparm_context *lp_ctx,
 						     struct resolve_context *resolve_ctx,
 						     struct tevent_context *event_ctx);
 NTSTATUS smb_composite_connect_recv(struct composite_context *c, TALLOC_CTX *mem_ctx);
 NTSTATUS smb_composite_connect(struct smb_composite_connect *io, TALLOC_CTX *mem_ctx,
+			       struct loadparm_context *lp_ctx,
 			       struct resolve_context *resolve_ctx,
 			       struct tevent_context *ev);
 
@@ -192,7 +191,6 @@ NTSTATUS smb_composite_sesssetup(struct smbcli_session *session, struct smb_comp
 struct smb_composite_fsinfo {
 	struct {
 		const char *dest_host;
-		const char **dest_ports;
 		const char *socket_options;
 		const char *called_name;
 		const char *service;
@@ -210,14 +208,10 @@ struct smb_composite_fsinfo {
 
 struct composite_context *smb_composite_fsinfo_send(struct smbcli_tree *tree, 
 						    struct smb_composite_fsinfo *io,
+						    struct loadparm_context *lp_ctx,
 						    struct resolve_context *resolve_ctx,
 						    struct tevent_context *event_ctx);
 NTSTATUS smb_composite_fsinfo_recv(struct composite_context *c, TALLOC_CTX *mem_ctx);
-NTSTATUS smb_composite_fsinfo(struct smbcli_tree *tree, 
-			      TALLOC_CTX *mem_ctx,
-			      struct smb_composite_fsinfo *io,
-			      struct resolve_context *resolve_ctx,
-			      struct tevent_context *ev);
 
 /*
   composite call for appending new acl to the file's security descriptor and get 
@@ -242,24 +236,6 @@ NTSTATUS smb_composite_appendacl_recv(struct composite_context *c, TALLOC_CTX *m
 NTSTATUS smb_composite_appendacl(struct smbcli_tree *tree, 
 				TALLOC_CTX *mem_ctx,
 				struct smb_composite_appendacl *io);
-
-/*
-  a composite API to fire connect() calls to multiple targets, picking the
-  first one.
-*/
-
-struct smb_composite_connectmulti {
-	struct {
-		int num_dests;
-		const char **hostnames;
-		const char **addresses;
-		int *ports; 	/* Either NULL for lpcfg_smb_ports() per
-				 * destination or a list of explicit ports */
-	} in;
-	struct {
-		struct smbcli_socket *socket;
-	} out;
-};
 
 struct smbcli_session;
 struct resolve_context;

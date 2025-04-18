@@ -3179,8 +3179,9 @@ return a connection to a server
 *******************************************************/
 static bool do_connect(struct smbclient_context *ctx,
 		       struct tevent_context *ev_ctx,
+		       struct loadparm_context *lp_ctx,
 		       struct resolve_context *resolve_ctx,
-		       const char *specified_server, const char **ports,
+		       const char *specified_server,
 		       const char *specified_share,
 			   const char *socket_options,
 		       struct cli_credentials *cred,
@@ -3219,10 +3220,10 @@ static bool do_connect(struct smbclient_context *ctx,
 		return false;
 	}
 
-	status = smbcli_full_connection(ctx, &ctx->cli, server, ports,
+	status = smbcli_full_connection(ctx, &ctx->cli, server,
 					share, NULL,
 					socket_options,
-					cred, resolve_ctx,
+					cred, lp_ctx, resolve_ctx,
 					ev_ctx, options, session_options,
 					gensec_settings);
 	if (!NT_STATUS_IS_OK(status)) {
@@ -3253,9 +3254,10 @@ static int do_host_query(struct loadparm_context *lp_ctx,
 handle a message operation
 ****************************************************************************/
 static int do_message_op(const char *netbios_name, const char *desthost,
-			 const char **destports, const char *destip,
+			 const char *destip,
 			 int name_type,
 			 struct tevent_context *ev_ctx,
+			 struct loadparm_context *lp_ctx,
 			 struct resolve_context *resolve_ctx,
 			 struct smbcli_options *options,
              const char *socket_options)
@@ -3277,8 +3279,8 @@ static int do_message_op(const char *netbios_name, const char *desthost,
 		return 1;
 	}
 
-	ok = smbcli_socket_connect(cli, server_name, destports,
-				   ev_ctx, resolve_ctx, options,
+	ok = smbcli_socket_connect(cli, server_name,
+				   ev_ctx, lp_ctx, resolve_ctx, options,
 				   socket_options,
 				   &calling, &called);
 	if (!ok) {
@@ -3522,16 +3524,18 @@ int main(int argc, char *argv[])
 
 	if (message) {
 		rc = do_message_op(lpcfg_netbios_name(lp_ctx), desthost,
-				   lpcfg_smb_ports(lp_ctx), dest_ip,
+				   dest_ip,
 				   name_type, ev_ctx,
+				   lp_ctx,
 				   lpcfg_resolve_context(lp_ctx),
 				   &smb_options,
                    lpcfg_socket_options(lp_ctx));
 		goto done;
 	}
 
-	if (!do_connect(ctx, ev_ctx, lpcfg_resolve_context(lp_ctx),
-			desthost, lpcfg_smb_ports(lp_ctx), service,
+	if (!do_connect(ctx, ev_ctx, lp_ctx,
+			lpcfg_resolve_context(lp_ctx),
+			desthost, service,
 			lpcfg_socket_options(lp_ctx),
 			creds,
 			&smb_options, &smb_session_options,

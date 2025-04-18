@@ -7183,8 +7183,8 @@ static bool test_ioctl_bug14788_VALIDATE_NEGOTIATE(struct torture_context *tortu
 
 	status = smb2_connect(torture,
 			      host,
-			      lpcfg_smb_ports(torture->lp_ctx),
 			      share,
+			      torture->lp_ctx,
 			      lpcfg_resolve_context(torture->lp_ctx),
 			      credentials,
 			      &tree,
@@ -7286,8 +7286,8 @@ static bool test_ioctl_bug14788_NETWORK_INTERFACE(struct torture_context *tortur
 
 	status = smb2_connect(torture,
 			      host,
-			      lpcfg_smb_ports(torture->lp_ctx),
 			      share,
+			      torture->lp_ctx,
 			      lpcfg_resolve_context(torture->lp_ctx),
 			      credentials,
 			      &tree,

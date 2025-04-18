@@ -61,6 +61,7 @@ struct dcerpc_pipe_connect {
 struct pipe_np_smb_state {
 	struct smb_composite_connect conn;
 	struct dcerpc_pipe_connect io;
+	struct loadparm_context *lp_ctx;
 };
 
 
@@ -154,6 +155,7 @@ static struct composite_context *dcerpc_pipe_connect_ncacn_np_smb_send(TALLOC_CT
 	c->private_data = s;
 
 	s->io  = *io;
+	s->lp_ctx = lp_ctx;
 	conn   = &s->conn;
 
 	if (smbXcli_conn_is_connected(s->io.smb.conn)) {
@@ -170,7 +172,6 @@ static struct composite_context *dcerpc_pipe_connect_ncacn_np_smb_send(TALLOC_CT
 	   remote rpc server */
 	target_hostname = dcerpc_binding_get_string_option(s->io.binding, "target_hostname");
 	conn->in.dest_host = dcerpc_binding_get_string_option(s->io.binding, "host");
-	conn->in.dest_ports = lpcfg_smb_ports(lp_ctx);
 	conn->in.called_name = target_hostname;
 	if (conn->in.called_name == NULL) {
 		conn->in.called_name = "*SMBSERVER";
@@ -235,12 +236,12 @@ static struct composite_context *dcerpc_pipe_connect_ncacn_np_smb_send(TALLOC_CT
 
 	subreq = smb_connect_nego_send(s,
 				       c->event_ctx,
+				       s->lp_ctx,
 				       s->io.resolve_ctx,
 				       &conn->in.options,
 				       conn->in.socket_options,
 				       conn->in.dest_host,
 				       dest_address,
-				       conn->in.dest_ports,
 				       target_hostname,
 				       conn->in.called_name,
 				       calling_name);
@@ -277,8 +278,8 @@ static void continue_smbXcli_connect(struct tevent_req *subreq)
 		 */
 		subreq = smb2_connect_send(s, c->event_ctx,
 				conn->in.dest_host,
-				conn->in.dest_ports,
 				conn->in.service,
+				s->lp_ctx,
 				s->io.resolve_ctx,
 				conn->in.credentials,
 				conn->in.fallback_to_anonymous,
@@ -297,6 +298,7 @@ static void continue_smbXcli_connect(struct tevent_req *subreq)
 	 * on the established connection.
 	 */
 	creq = smb_composite_connect_send(conn, s->io.conn,
+					  s->lp_ctx,
 					  s->io.resolve_ctx,
 					  c->event_ctx);
 	if (composite_nomem(creq, c)) return;

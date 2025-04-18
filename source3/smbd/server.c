@@ -74,6 +74,8 @@ struct smbd_parent_context {
 	struct tevent_context *ev_ctx;
 	struct messaging_context *msg_ctx;
 
+	struct smb_transports transports;
+
 	/* the list of listening sockets */
 	struct smbd_open_socket *sockets;
 
@@ -90,6 +92,7 @@ struct smbd_parent_context {
 struct smbd_open_socket {
 	struct smbd_open_socket *prev, *next;
 	struct smbd_parent_context *parent;
+	struct smb_transport transport;
 	int fd;
 	struct tevent_fd *fde;
 };
@@ -959,12 +962,13 @@ static void smbd_accept_connection(struct tevent_context *ev,
 	struct smbd_open_socket *s = talloc_get_type_abort(private_data,
 				     struct smbd_open_socket);
 	struct messaging_context *msg_ctx = s->parent->msg_ctx;
-	struct sockaddr_storage addr;
-	socklen_t in_addrlen = sizeof(addr);
+	struct samba_sockaddr caddr = {
+		.sa_socklen = sizeof(struct sockaddr_storage),
+	};
 	int fd;
 	pid_t pid = 0;
 
-	fd = accept(s->fd, (struct sockaddr *)(void *)&addr,&in_addrlen);
+	fd = accept(s->fd, &caddr.u.sa, &caddr.sa_socklen);
 	if (fd == -1 && errno == EINTR)
 		return;
 
@@ -976,6 +980,7 @@ static void smbd_accept_connection(struct tevent_context *ev,
 	smb_set_close_on_exec(fd);
 
 	if (s->parent->interactive) {
+		enum smb_transport_type transport_type = s->transport.type;
 		NTSTATUS status;
 
 		status = reinit_after_fork(msg_ctx, ev, true);
@@ -983,7 +988,7 @@ static void smbd_accept_connection(struct tevent_context *ev,
 			exit_server("reinit_after_fork() failed");
 			return;
 		}
-		smbd_process(ev, msg_ctx, fd, true);
+		smbd_process(ev, msg_ctx, fd, true, transport_type);
 		exit_server_cleanly("end of interactive mode");
 		return;
 	}
@@ -995,6 +1000,7 @@ static void smbd_accept_connection(struct tevent_context *ev,
 
 	pid = fork();
 	if (pid == 0) {
+		enum smb_transport_type transport_type = s->transport.type;
 		char addrstr[INET6_ADDRSTRLEN];
 		NTSTATUS status = NT_STATUS_OK;
 
@@ -1033,10 +1039,10 @@ static void smbd_accept_connection(struct tevent_context *ev,
 			smb_panic("reinit_after_fork() failed");
 		}
 
-		print_sockaddr(addrstr, sizeof(addrstr), &addr);
+		print_sockaddr(addrstr, sizeof(addrstr), &caddr.u.ss);
 		process_set_title("smbd[%s]", "client [%s]", addrstr);
 
-		smbd_process(ev, msg_ctx, fd, false);
+		smbd_process(ev, msg_ctx, fd, false, transport_type);
 	 exit:
 		exit_server_cleanly("end of child");
 		return;
@@ -1082,9 +1088,34 @@ static void smbd_accept_connection(struct tevent_context *ev,
 static bool smbd_open_one_socket(struct smbd_parent_context *parent,
 				 struct tevent_context *ev_ctx,
 				 const struct sockaddr_storage *ifss,
-				 uint16_t port)
+				 const struct smb_transport *transport)
 {
 	struct smbd_open_socket *s;
+	uint16_t port = 0;
+	int protocol = 0;
+	bool rebind = false;
+
+	switch (transport->type) {
+	case SMB_TRANSPORT_TYPE_TCP:
+	case SMB_TRANSPORT_TYPE_NBT:
+		port = transport->port;
+		protocol = IPPROTO_TCP;
+		rebind = true;
+		break;
+	case SMB_TRANSPORT_TYPE_UNKNOWN:
+		/*
+		 * Should never happen
+		 */
+		smb_panic(__location__);
+		return false;
+	}
+
+	if (port == 0) {
+		/*
+		 * Transport not supported...
+		 */
+		return false;
+	}
 
 	s = talloc(parent, struct smbd_open_socket);
 	if (!s) {
@@ -1092,8 +1123,9 @@ static bool smbd_open_one_socket(struct smbd_parent_context *parent,
 	}
 
 	s->parent = parent;
+	s->transport = *transport;
 
-	s->fd = open_socket_in(SOCK_STREAM, ifss, port, true);
+	s->fd = open_socket_in_protocol(SOCK_STREAM, protocol, ifss, port, rebind);
 	if (s->fd < 0) {
 		int err = -(s->fd);
 		DBG_ERR("open_socket_in failed: %s\n", strerror(err));
@@ -1140,18 +1172,22 @@ static bool smbd_open_one_socket(struct smbd_parent_context *parent,
 	return true;
 }
 
+static size_t smbd_open_socket_for_ip(struct smbd_parent_context *parent,
+				      struct tevent_context *ev_ctx,
+				      const struct sockaddr_storage *ifss);
+
 /****************************************************************************
  Open the socket communication.
 ****************************************************************************/
 
 static bool open_sockets_smbd(struct smbd_parent_context *parent,
 			      struct tevent_context *ev_ctx,
-			      struct messaging_context *msg_ctx,
-			      const char *smb_ports)
+			      struct messaging_context *msg_ctx)
 {
+	const struct smb_transports *ts = &parent->transports;
+	uint8_t ti;
 	int num_interfaces = iface_count();
-	int i,j;
-	const char **ports;
+	int i;
 	unsigned dns_port = 0;
 
 #ifdef HAVE_ATEXIT
@@ -1161,21 +1197,30 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 	/* Stop zombies */
 	smbd_setup_sig_chld_handler(parent);
 
-	ports = lp_smb_ports();
+	for (ti = 0; ti < ts->num_transports; ti++) {
+		const struct smb_transport *t =
+			&ts->transports[ti];
+		uint16_t port = 0;
 
-	/* use a reasonable default set of ports - listing on 445 and 139 */
-	if (smb_ports) {
-		char **l;
-		l = str_list_make_v3(talloc_tos(), smb_ports, NULL);
-		ports = discard_const_p(const char *, l);
-	}
+		switch (t->type) {
+		case SMB_TRANSPORT_TYPE_TCP:
+		case SMB_TRANSPORT_TYPE_NBT:
+			port = t->port;
+			break;
+		case SMB_TRANSPORT_TYPE_UNKNOWN:
+			/*
+			 * Should never happen
+			 */
+			smb_panic(__location__);
+			return false;
+		}
 
-	for (j = 0; ports && ports[j]; j++) {
-		unsigned port = atoi(ports[j]);
-
-		if (port == 0 || port > 0xffff) {
-			exit_server_cleanly("Invalid port in the config or on "
-					    "the commandline specified!");
+		/*
+		 * Keep the first port for mDNS service
+		 * registration.
+		 */
+		if (dns_port == 0) {
+			dns_port = port;
 		}
 	}
 
@@ -1190,6 +1235,8 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 		for(i = 0; i < num_interfaces; i++) {
 			const struct sockaddr_storage *ifss =
 					iface_n_sockaddr_storage(i);
+			size_t num_ok;
+
 			if (ifss == NULL) {
 				DEBUG(0,("open_sockets_smbd: "
 					"interface %d has NULL IP address !\n",
@@ -1197,67 +1244,47 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 				continue;
 			}
 
-			for (j = 0; ports && ports[j]; j++) {
-				unsigned port = atoi(ports[j]);
-
-				/* Keep the first port for mDNS service
-				 * registration.
-				 */
-				if (dns_port == 0) {
-					dns_port = port;
-				}
-
-				if (!smbd_open_one_socket(parent,
-							  ev_ctx,
-							  ifss,
-							  port)) {
-					return false;
-				}
+			num_ok = smbd_open_socket_for_ip(parent,
+							 ev_ctx,
+							 ifss);
+			if (num_ok != ts->num_transports) {
+				return false;
 			}
 		}
 	} else {
 		/* Just bind to 0.0.0.0 - accept connections
 		   from anywhere. */
-
-		const char *sock_addr;
-		char *sock_tok;
-		const char *sock_ptr;
-
+		const char * const sock_addrs[] = {
 #ifdef HAVE_IPV6
-		sock_addr = "::,0.0.0.0";
-#else
-		sock_addr = "0.0.0.0";
+			"::",
 #endif
+			"0.0.0.0",
+		};
 
-		for (sock_ptr=sock_addr;
-		     next_token_talloc(talloc_tos(), &sock_ptr, &sock_tok, " \t,"); ) {
-			for (j = 0; ports && ports[j]; j++) {
-				struct sockaddr_storage ss;
-				unsigned port = atoi(ports[j]);
+		for (i = 0; i < ARRAY_SIZE(sock_addrs); i++) {
+			const char *sock_tok = sock_addrs[i];
+			struct sockaddr_storage ss;
+			size_t num_ok;
 
-				/* Keep the first port for mDNS service
-				 * registration.
-				 */
-				if (dns_port == 0) {
-					dns_port = port;
-				}
+			/* open an incoming socket */
+			if (!interpret_string_addr(&ss, sock_tok,
+					AI_NUMERICHOST|AI_PASSIVE)) {
+				continue;
+			}
 
-				/* open an incoming socket */
-				if (!interpret_string_addr(&ss, sock_tok,
-						AI_NUMERICHOST|AI_PASSIVE)) {
-					continue;
-				}
-
+			num_ok = smbd_open_socket_for_ip(parent,
+							 ev_ctx,
+							 &ss);
+			if (num_ok == 0) {
 				/*
 				 * If we fail to open any sockets
 				 * in this loop the parent-sockets == NULL
 				 * case below will prevent us from starting.
 				 */
-
-				(void)smbd_open_one_socket(parent,
-						  ev_ctx,
-						  &ss,
-						  port);
+				continue;
+			}
+			if (num_ok != ts->num_transports) {
+				return false;
 			}
 		}
 	}
@@ -1558,50 +1585,31 @@ static NTSTATUS smbd_claim_version(struct messaging_context *msg,
  Open socket communication on given ip address
 ****************************************************************************/
 
-static bool smbd_open_socket_for_ip(struct smbd_parent_context *parent,
-				    struct tevent_context *ev_ctx,
-				    struct messaging_context *msg_ctx,
-				    const char *smb_ports,
-				    const struct sockaddr_storage *ifss)
+static size_t smbd_open_socket_for_ip(struct smbd_parent_context *parent,
+				      struct tevent_context *ev_ctx,
+				      const struct sockaddr_storage *ifss)
 {
-	int j;
-	const char **ports;
-	unsigned dns_port = 0;
-	TALLOC_CTX *ctx;
-	bool status = true;
+	const struct smb_transports *ts = &parent->transports;
+	size_t num_ok = 0;
+	uint8_t ti;
 
-	ports = lp_smb_ports();
-	ctx = talloc_stackframe();
+	for (ti = 0; ti < ts->num_transports; ti++) {
+		const struct smb_transport *t =
+			&ts->transports[ti];
+		bool ok;
 
-	/* use a reasonable default set of ports - listing on 445 and 139 */
-	if (smb_ports) {
-		char **l;
-		l = str_list_make_v3(ctx, smb_ports, NULL);
-		ports = discard_const_p(const char *, l);
-	}
-
-	for (j = 0; ports && ports[j]; j++) {
-		unsigned port = atoi(ports[j]);
-
-		/* Keep the first port for mDNS service
-		 * registration.
-		 */
-		if (dns_port == 0) {
-			dns_port = port;
-		}
-
-		if (!smbd_open_one_socket(parent,
+		ok = smbd_open_one_socket(parent,
 					  ev_ctx,
 					  ifss,
-					  port)) {
-			status = false;
-			goto out_free;
+					  t);
+		if (!ok) {
+			continue;
 		}
+
+		num_ok += 1;
 	}
 
-out_free:
-	TALLOC_FREE(ctx);
-	return status;
+	return num_ok;
 }
 
 struct smbd_addrchanged_state {
@@ -1609,7 +1617,6 @@ struct smbd_addrchanged_state {
 	struct tevent_context *ev;
 	struct messaging_context *msg_ctx;
 	struct smbd_parent_context *parent;
-	char *ports;
 };
 
 static void smbd_addr_changed(struct tevent_req *req);
@@ -1617,8 +1624,7 @@ static void smbd_addr_changed(struct tevent_req *req);
 static void smbd_init_addrchange(TALLOC_CTX *mem_ctx,
 				struct tevent_context *ev,
 				struct messaging_context *msg_ctx,
-				struct smbd_parent_context *parent,
-				char *ports)
+				struct smbd_parent_context *parent)
 {
 	struct smbd_addrchanged_state *state;
 	struct tevent_req *req;
@@ -1633,7 +1639,6 @@ static void smbd_init_addrchange(TALLOC_CTX *mem_ctx,
 		.ev = ev,
 		.msg_ctx = msg_ctx,
 		.parent = parent,
-		.ports = ports
 	};
 
 	status = addrchange_context_create(state, &state->ctx);
@@ -1654,27 +1659,27 @@ static void smbd_init_addrchange(TALLOC_CTX *mem_ctx,
 
 static void smbd_close_socket_for_ip(struct smbd_parent_context *parent,
 				     struct messaging_context *msg_ctx,
-				     struct sockaddr_storage *addr)
+				     struct samba_sockaddr *addr)
 {
 	struct smbd_open_socket *s = NULL;
 
 	for (s = parent->sockets; s != NULL; s = s->next) {
-		struct sockaddr_storage a;
-		socklen_t addr_len = sizeof(a);
+		struct samba_sockaddr saddr = {
+			.sa_socklen = sizeof(struct sockaddr_storage),
+		};
 
-		if (getsockname(s->fd, (struct sockaddr *)&a, &addr_len) < 0) {
+		if (getsockname(s->fd, &saddr.u.sa, &saddr.sa_socklen) < 0) {
 			DBG_NOTICE("smbd: Unable to get address - skip\n");
 			continue;
 		}
-		if (sockaddr_equal((struct sockaddr *)&a,
-				   (struct sockaddr *)addr)) {
+		if (sockaddr_equal(&saddr.u.sa, &addr->u.sa)) {
 			char addrstr[INET6_ADDRSTRLEN];
 			DATA_BLOB blob;
 			NTSTATUS status;
 
 			DLIST_REMOVE(parent->sockets, s);
 			TALLOC_FREE(s);
-			print_sockaddr(addrstr, sizeof(addrstr), addr);
+			print_sockaddr(addrstr, sizeof(addrstr), &addr->u.ss);
 			DBG_NOTICE("smbd: Closed listening socket for %s\n",
 				   addrstr);
 
@@ -1698,12 +1703,12 @@ static void smbd_addr_changed(struct tevent_req *req)
 	struct smbd_addrchanged_state *state = tevent_req_callback_data(
 		req, struct smbd_addrchanged_state);
 	enum addrchange_type type;
-	struct sockaddr_storage addr;
+	struct samba_sockaddr addr = { .sa_socklen = 0, };
 	NTSTATUS status;
 	uint32_t if_index;
 	bool match;
 
-	status = addrchange_recv(req, &type, &addr, &if_index);
+	status = addrchange_recv(req, &type, &addr.u.ss, &if_index);
 	TALLOC_FREE(req);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("addrchange_recv failed: %s, stop listening\n",
@@ -1725,7 +1730,7 @@ static void smbd_addr_changed(struct tevent_req *req)
 	if (type == ADDRCHANGE_DEL) {
 		char addrstr[INET6_ADDRSTRLEN];
 
-		print_sockaddr(addrstr, sizeof(addrstr), &addr);
+		print_sockaddr(addrstr, sizeof(addrstr), &addr.u.ss);
 
 		DBG_NOTICE("smbd: kernel (AF_NETLINK) dropped ip %s "
 			   "on if_index %u\n",
@@ -1738,18 +1743,18 @@ static void smbd_addr_changed(struct tevent_req *req)
 
 	if (type == ADDRCHANGE_ADD) {
 		char addrstr[INET6_ADDRSTRLEN];
+		size_t num_ok;
 
-		print_sockaddr(addrstr, sizeof(addrstr), &addr);
+		print_sockaddr(addrstr, sizeof(addrstr), &addr.u.ss);
 
 		DBG_NOTICE("smbd: kernel (AF_NETLINK) added ip %s "
 			   "on if_index %u\n",
 			   addrstr, if_index);
 
-		if (!smbd_open_socket_for_ip(state->parent,
-					     state->ev,
-					     state->msg_ctx,
-					     state->ports,
-					     &addr)) {
+		num_ok = smbd_open_socket_for_ip(state->parent,
+						 state->ev,
+						 &addr.u.ss);
+		if (num_ok == 0) {
 			DBG_NOTICE("smbd: Unable to open socket on %s\n",
 				   addrstr);
 		}
@@ -1800,7 +1805,7 @@ extern void build_options(bool screen);
 			.argInfo    = POPT_ARG_STRING,
 			.arg        = &ports,
 			.val        = 0,
-			.descrip    = "Listen on the specified ports",
+			.descrip    = "Listen on the specified transports",
 		},
 		{
 			.longName   = "profiling-level",
@@ -1824,6 +1829,7 @@ extern void build_options(bool screen);
 	struct tevent_signal *se;
 	int profiling_level;
 	char *np_dir = NULL;
+	struct loadparm_context *lp_ctx = NULL;
 	const struct loadparm_substitution *lp_sub =
 		loadparm_s3_global_substitution();
 	static const struct smbd_shim smbd_shim_fns =
@@ -2024,6 +2030,11 @@ extern void build_options(bool screen);
 		exit(1);
 	}
 
+	lp_ctx = loadparm_init_s3(frame, loadparm_s3_helpers());
+	if (lp_ctx == NULL) {
+		exit_server("ERROR: loadparm_init_s3()");
+	}
+
 	if (lp_server_role() == ROLE_ACTIVE_DIRECTORY_DC) {
 		if (!lp_parm_bool(-1, "server role check", "inhibit", false)) {
 			DBG_ERR("server role = 'active directory domain controller' not compatible with running smbd standalone. \n");
@@ -2123,6 +2134,26 @@ extern void build_options(bool screen);
 	parent->msg_ctx = msg_ctx;
 	am_parent = parent;
 
+	if (ports != NULL) {
+		const char **ts = NULL;
+		char **l = NULL;
+		l = str_list_make_v3(talloc_tos(), ports, NULL);
+		ts = discard_const_p(const char *, l);
+		parent->transports = smb_transports_parse("--ports",
+							  ts);
+		if (parent->transports.num_transports == 0) {
+			exit_server("no valid transport from '--ports'");
+		}
+	} else {
+		const char **ts = lp_server_smb_transports();
+		parent->transports = smb_transports_parse("server smb transports",
+							  ts);
+		if (parent->transports.num_transports == 0) {
+			exit_server("no valid transport from "
+				    "'server smb transports'");
+		}
+	}
+
 	se = tevent_add_signal(parent->ev_ctx,
 			       parent,
 			       SIGTERM, 0,
@@ -2159,11 +2190,9 @@ extern void build_options(bool screen);
 	}
 
 	if (lp_server_role() == ROLE_DOMAIN_BDC || lp_server_role() == ROLE_DOMAIN_PDC || lp_server_role() == ROLE_IPA_DC) {
-		struct loadparm_context *lp_ctx = loadparm_init_s3(NULL, loadparm_s3_helpers());
 		if (!open_schannel_session_store(NULL, lp_ctx)) {
 			exit_daemon("ERROR: Samba cannot open schannel store for secured NETLOGON operations.", EACCES);
 		}
-		TALLOC_FREE(lp_ctx);
 	}
 
 	if(!get_global_sam_sid()) {
@@ -2320,17 +2349,17 @@ extern void build_options(bool screen);
 	        /* Stop zombies */
 		smbd_setup_sig_chld_handler(parent);
 
-		smbd_process(ev_ctx, msg_ctx, sock, true);
+		smbd_process(ev_ctx, msg_ctx, sock, true, SMB_TRANSPORT_TYPE_TCP);
 
 		exit_server_cleanly(NULL);
 		return(0);
 	}
 
 	if (lp_interfaces() && lp_bind_interfaces_only()) {
-		smbd_init_addrchange(NULL, ev_ctx, msg_ctx, parent, ports);
+		smbd_init_addrchange(NULL, ev_ctx, msg_ctx, parent);
 	}
 
-	if (!open_sockets_smbd(parent, ev_ctx, msg_ctx, ports))
+	if (!open_sockets_smbd(parent, ev_ctx, msg_ctx))
 		exit_server("open_sockets_smbd() failed");
 
 	TALLOC_FREE(frame);

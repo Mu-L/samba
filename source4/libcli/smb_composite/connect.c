@@ -413,6 +413,7 @@ static void subreq_handler(struct tevent_req *subreq)
 */
 struct composite_context *smb_composite_connect_send(struct smb_composite_connect *io,
 						     TALLOC_CTX *mem_ctx,
+						     struct loadparm_context *lp_ctx,
 						     struct resolve_context *resolve_ctx,
 						     struct tevent_context *event_ctx)
 {
@@ -474,8 +475,9 @@ struct composite_context *smb_composite_connect_send(struct smb_composite_connec
 
 	state->creq = smbcli_sock_connect_send(state, 
 					       NULL,
-					       io->in.dest_ports,
+					       &io->in.options,
 					       io->in.dest_host, 
+					       lp_ctx,
 					       resolve_ctx, c->event_ctx, 
 					       io->in.socket_options,
 					       &state->calling,
@@ -517,10 +519,11 @@ NTSTATUS smb_composite_connect_recv(struct composite_context *c, TALLOC_CTX *mem
   sync version of smb_composite_connect 
 */
 NTSTATUS smb_composite_connect(struct smb_composite_connect *io, TALLOC_CTX *mem_ctx,
+			       struct loadparm_context *lp_ctx,
 			       struct resolve_context *resolve_ctx,
 			       struct tevent_context *ev)
 {
-	struct composite_context *c = smb_composite_connect_send(io, mem_ctx, resolve_ctx, ev);
+	struct composite_context *c = smb_composite_connect_send(io, mem_ctx, lp_ctx, resolve_ctx, ev);
 	if (c == NULL) {
 		return NT_STATUS_NO_MEMORY;
 	}

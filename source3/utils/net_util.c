@@ -29,6 +29,7 @@
 #include "secrets.h"
 #include "../libcli/security/security.h"
 #include "libsmb/libsmb.h"
+#include "libsmb/smbsock_connect.h"
 #include "lib/param/param.h"
 #include "auth/gensec/gensec.h"
 #include "libcli/auth/netlogon_creds_cli.h"
@@ -109,6 +110,7 @@ NTSTATUS connect_to_service(struct net_context *c,
 			    const char *service_name,
 			    const char *service_type)
 {
+	struct smb_transports ts = smbsock_transports_from_port(c->opt_port);
 	NTSTATUS nt_status;
 	int flags = 0;
 
@@ -121,7 +123,7 @@ NTSTATUS connect_to_service(struct net_context *c,
 					      NULL,
 					      server_name,
 					      server_ss,
-					      c->opt_port,
+					      &ts,
 					      service_name,
 					      service_type,
 					      c->creds,
@@ -173,6 +175,7 @@ NTSTATUS connect_to_ipc_anonymous(struct net_context *c,
 				const struct sockaddr_storage *server_ss,
 				const char *server_name)
 {
+	struct smb_transports ts = smbsock_transports_from_port(c->opt_port);
 	NTSTATUS nt_status;
 	struct cli_credentials *anon_creds = NULL;
 
@@ -187,7 +190,7 @@ NTSTATUS connect_to_ipc_anonymous(struct net_context *c,
 					      c->opt_requester_name,
 					      server_name,
 					      server_ss,
-					      c->opt_port,
+					      &ts,
 					      "IPC$",
 					      "IPC",
 					      anon_creds,
