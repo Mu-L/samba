@@ -34,7 +34,6 @@ typedef void (*dcerpc_ncacn_termination_fn)(struct dcesrv_connection *,
 
 struct dcerpc_ncacn_conn {
 	struct dcerpc_ncacn_conn *prev, *next;
-	int sock;
 
 	struct pipes_struct p;
 	dcerpc_ncacn_termination_fn termination_fn;

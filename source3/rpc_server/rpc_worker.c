@@ -277,7 +277,6 @@ static void rpc_worker_new_client(
 	}
 	*ncacn_conn = (struct dcerpc_ncacn_conn) {
 		.endpoint = ep,
-		.sock = sock,
 		.termination_fn = rpc_worker_connection_terminated,
 		.termination_data = worker,
 	};
