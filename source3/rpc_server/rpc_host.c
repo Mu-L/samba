@@ -116,6 +116,7 @@ struct rpc_host_iface_name {
 struct rpc_host_endpoint {
 	struct rpc_server *server;
 	struct dcerpc_binding *binding;
+	struct named_pipe_auth_rep_info8 np_info;
 	struct ndr_syntax_id *interfaces;
 	int *fds;
 	size_t num_fds;
@@ -628,6 +629,7 @@ static void rpc_server_get_endpoints_done(struct tevent_req *subreq)
 	for (i=2; i<num_lines; i++) {
 		char *line = lines[i];
 		struct rpc_host_endpoint *endpoint = NULL;
+		enum dcerpc_transport_t transport;
 		bool ok;
 
 		if (line[0] != ' ') {
@@ -656,6 +658,15 @@ static void rpc_server_get_endpoints_done(struct tevent_req *subreq)
 			DBG_DEBUG("rpc_host_endpoint_find for %s failed\n",
 				  line+1);
 			continue;
+		}
+
+		transport = dcerpc_binding_get_transport(endpoint->binding);
+		if (transport == NCACN_NP && endpoint->np_info.file_type == 0) {
+			endpoint->np_info = (struct named_pipe_auth_rep_info8) {
+				.file_type = FILE_TYPE_MESSAGE_MODE_PIPE,
+				.device_state = 0xff | 0x0400 | 0x0100,
+				.allocation_size = 4096,
+			};
 		}
 
 		ok = ndr_interfaces_add_unique(
@@ -917,12 +928,14 @@ static void rpc_host_new_client_got_bind(struct tevent_req *subreq);
 static struct tevent_req *rpc_host_new_client_send(
 	TALLOC_CTX *mem_ctx,
 	struct tevent_context *ev,
-	enum dcerpc_transport_t transport,
+	const struct rpc_host_endpoint *endpoint,
 	int *psock,
 	const struct samba_sockaddr *peer_addr)
 {
 	struct tevent_req *req = NULL, *subreq = NULL;
 	struct rpc_host_new_client_state *state = NULL;
+	enum dcerpc_transport_t transport =
+		dcerpc_binding_get_transport(endpoint->binding);
 	int rc, sock_dup;
 	NTSTATUS status;
 
@@ -971,9 +984,9 @@ static struct tevent_req *rpc_host_new_client_send(
 			state,
 			ev,
 			state->plain,
-			FILE_TYPE_MESSAGE_MODE_PIPE,
-			0xff | 0x0400 | 0x0100,
-			4096);
+			endpoint->np_info.file_type,
+			endpoint->np_info.device_state,
+			endpoint->np_info.allocation_size);
 		if (tevent_req_nomem(subreq, req)) {
 			return tevent_req_post(req, ev);
 		}
@@ -2135,7 +2148,7 @@ static void rpc_host_endpoint_accept_accepted(struct tevent_req *subreq)
 	subreq = rpc_host_new_client_send(
 		state,
 		state->ev,
-		dcerpc_binding_get_transport(endpoint->binding),
+		endpoint,
 		&sock,
 		&peer_addr);
 	if (tevent_req_nomem(subreq, req)) {
