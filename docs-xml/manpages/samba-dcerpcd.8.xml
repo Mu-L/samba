@@ -49,6 +49,7 @@
 		<arg choice="opt">-V|--version</arg>
 		<arg choice="opt">--libexec-rpcds</arg>
 		<arg choice="opt">--np-helper</arg>
+		<arg choice="opt">--np-only</arg>
 		<arg choice="opt">--ready-signal-fd=&lt;fd&gt;</arg>
 		<arg choice="opt">&lt;SERVICE_1&gt;</arg>
 		<arg choice="opt">&lt;SERVICE_2&gt;</arg>
@@ -185,6 +186,14 @@
 		option <smbconfoption name="rpc start on demand
 		helpers">true</smbconfoption> must be set to true
 		(this is the default setting).  </para></listitem>
+		</varlistentry>
+
+		<varlistentry>
+		<term>--np-only</term>
+		<listitem><para>Run <command>samba-dcerpcd</command>
+		as daemon without --np-helper, the --np-only options
+		it still only binds to ncacn_np services.
+		</para></listitem>
 		</varlistentry>
 
 		<varlistentry>

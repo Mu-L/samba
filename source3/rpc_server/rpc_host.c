@@ -89,6 +89,7 @@ struct rpc_host {
 	int worker_stdin[2];
 
 	bool np_helper;
+	bool np_only;
 
 	/*
 	 * If we're started with --np-helper but nobody contacts us,
@@ -1690,7 +1691,7 @@ static struct tevent_req *rpc_server_setup_send(
 		state,
 		ev,
 		rpc_server_exe,
-		host->np_helper ? NCACN_NP : NCA_UNKNOWN);
+		host->np_only ? NCACN_NP : NCA_UNKNOWN);
 	if (tevent_req_nomem(subreq, req)) {
 		return tevent_req_post(req, ev);
 	}
@@ -2393,7 +2394,8 @@ static struct tevent_req *rpc_host_send(
 	char *servers,
 	int ready_signal_fd,
 	const char *daemon_ready_progname,
-	bool is_np_helper)
+	bool is_np_helper,
+	bool bind_np_only)
 {
 	struct tevent_req *req = NULL, *subreq = NULL;
 	struct rpc_host_state *state = NULL;
@@ -2433,6 +2435,7 @@ static struct tevent_req *rpc_host_send(
 
 	host->msg_ctx = msg_ctx;
 	host->np_helper = is_np_helper;
+	host->np_only = bind_np_only;
 
 	ret = pipe(host->worker_stdin);
 	if (ret == -1) {
@@ -2732,6 +2735,7 @@ int main(int argc, const char *argv[])
 
 	int libexec_rpcds = 0;
 	int np_helper = 0;
+	int np_only = 0;
 	int ready_signal_fd = -1;
 
 	struct samba_cmdline_daemon_cfg *cmdline_daemon_cfg = NULL;
@@ -2754,6 +2758,13 @@ int main(int argc, const char *argv[])
 			.argInfo    = POPT_ARG_NONE,
 			.arg        = &np_helper,
 			.descrip    = "Internal named pipe server",
+		},
+		{
+			.longName   = "np-only",
+			.argInfo    = POPT_ARG_NONE,
+			.arg        = &np_only,
+			.descrip    =
+				"Only listen on named pipes like --np-helper",
 		},
 		POPT_COMMON_SAMBA
 		POPT_COMMON_DAEMON
@@ -2852,6 +2863,11 @@ int main(int argc, const char *argv[])
 			exit(1);
 	}
 
+	/* --np-helper implies --no-only */
+	if (np_helper != 0) {
+		np_only = 1;
+	}
+
 	if (libexec_rpcds != 0) {
 		ret = rpc_host_list_servers(
 			dyn_SAMBA_LIBEXECDIR, frame, &servers);
@@ -2945,7 +2961,8 @@ int main(int argc, const char *argv[])
 		servers,
 		ready_signal_fd,
 		cmdline_daemon_cfg->fork ? NULL : progname,
-		np_helper != 0);
+		np_helper != 0,
+		np_only != 0);
 	if (req == NULL) {
 		DBG_ERR("rpc_host_send failed\n");
 		global_messaging_context_free();
