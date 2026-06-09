@@ -18,7 +18,7 @@
 #include "includes.h"
 #include "source3/locking/proto.h"
 #include "source3/smbd/proto.h"
-#include "rpc_worker.h"
+#include "rpc_worker_dcerpc.h"
 #include "librpc/gen_ndr/ndr_mdssvc.h"
 #include "librpc/gen_ndr/ndr_mdssvc_scompat.h"
 

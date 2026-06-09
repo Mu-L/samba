@@ -21,6 +21,13 @@
 #include "replace.h"
 #include "librpc/rpc/dcesrv_core.h"
 
+struct rpc_worker;
+struct rpc_worker_connection;
+
+struct ndr_interface_table;
+struct dcesrv_context;
+struct dcesrv_endpoint_server;
+
 int rpc_worker_main(
 	int argc,
 	const char *argv[],

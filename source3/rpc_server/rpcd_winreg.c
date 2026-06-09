@@ -16,7 +16,7 @@
  */
 
 #include "includes.h"
-#include "rpc_worker.h"
+#include "rpc_worker_dcerpc.h"
 #include "librpc/gen_ndr/ndr_winreg.h"
 #include "librpc/gen_ndr/ndr_winreg_scompat.h"
 #include "source3/registry/reg_init_full.h"

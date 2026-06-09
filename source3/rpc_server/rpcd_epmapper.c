@@ -16,7 +16,7 @@
  */
 
 #include "replace.h"
-#include "rpc_worker.h"
+#include "rpc_worker_dcerpc.h"
 #include "librpc/gen_ndr/ndr_epmapper.h"
 #include "librpc/gen_ndr/ndr_epmapper_scompat.h"
 #include "param/loadparm.h"

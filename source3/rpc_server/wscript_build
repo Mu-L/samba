@@ -21,7 +21,8 @@ bld.SAMBA_BINARY('samba-dcerpcd',
 bld.SAMBA_LIBRARY('RPC_WORKER',
                   private_library=True,
                   source='''
-                  rpc_worker.c
+                  rpc_worker_internal.c
+                  rpc_worker_dcerpc.c
                   ''',
                   deps='''
                   smbd_base

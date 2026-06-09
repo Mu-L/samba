@@ -16,7 +16,7 @@
  */
 
 #include "includes.h"
-#include "rpc_worker.h"
+#include "rpc_worker_dcerpc.h"
 #include "librpc/gen_ndr/ndr_lsa.h"
 #include "librpc/gen_ndr/ndr_lsa_scompat.h"
 #include "librpc/gen_ndr/ndr_samr.h"

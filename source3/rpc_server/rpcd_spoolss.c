@@ -16,7 +16,7 @@
  */
 
 #include "includes.h"
-#include "rpc_worker.h"
+#include "rpc_worker_dcerpc.h"
 #include "lib/global_contexts.h"
 #include "librpc/gen_ndr/ndr_spoolss.h"
 #include "librpc/gen_ndr/ndr_spoolss_scompat.h"

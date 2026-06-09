@@ -18,7 +18,7 @@
  */
 
 #include "includes.h"
-#include "rpc_worker.h"
+#include "rpc_worker_dcerpc.h"
 #include "librpc/gen_ndr/ndr_witness.h"
 #include "librpc/gen_ndr/ndr_witness_scompat.h"
 
