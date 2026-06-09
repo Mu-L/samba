@@ -895,7 +895,7 @@ fail:
 	return status;
 }
 
-struct rpc_host_bind_read_state {
+struct rpc_host_new_client_state {
 	struct tevent_context *ev;
 
 	int sock;
@@ -906,15 +906,15 @@ struct rpc_host_bind_read_state {
 	struct rpc_host_client *client;
 };
 
-static void rpc_host_bind_read_cleanup(
+static void rpc_host_new_client_cleanup(
 	struct tevent_req *req, enum tevent_req_state req_state);
-static void rpc_host_bind_read_got_npa(struct tevent_req *subreq);
-static void rpc_host_bind_read_got_bind(struct tevent_req *subreq);
+static void rpc_host_new_client_got_npa(struct tevent_req *subreq);
+static void rpc_host_new_client_got_bind(struct tevent_req *subreq);
 
 /*
  * Wait for a bind packet from a client.
  */
-static struct tevent_req *rpc_host_bind_read_send(
+static struct tevent_req *rpc_host_new_client_send(
 	TALLOC_CTX *mem_ctx,
 	struct tevent_context *ev,
 	enum dcerpc_transport_t transport,
@@ -922,12 +922,12 @@ static struct tevent_req *rpc_host_bind_read_send(
 	const struct samba_sockaddr *peer_addr)
 {
 	struct tevent_req *req = NULL, *subreq = NULL;
-	struct rpc_host_bind_read_state *state = NULL;
+	struct rpc_host_new_client_state *state = NULL;
 	int rc, sock_dup;
 	NTSTATUS status;
 
 	req = tevent_req_create(
-		mem_ctx, &state, struct rpc_host_bind_read_state);
+		mem_ctx, &state, struct rpc_host_new_client_state);
 	if (req == NULL) {
 		return NULL;
 	}
@@ -936,7 +936,7 @@ static struct tevent_req *rpc_host_bind_read_send(
 	state->sock = *psock;
 	*psock = -1;
 
-	tevent_req_set_cleanup_fn(req, rpc_host_bind_read_cleanup);
+	tevent_req_set_cleanup_fn(req, rpc_host_new_client_cleanup);
 
 	state->client = talloc_zero(state, struct rpc_host_client);
 	if (tevent_req_nomem(state->client, req)) {
@@ -978,7 +978,7 @@ static struct tevent_req *rpc_host_bind_read_send(
 			return tevent_req_post(req, ev);
 		}
 		tevent_req_set_callback(
-			subreq, rpc_host_bind_read_got_npa, req);
+			subreq, rpc_host_new_client_got_npa, req);
 		return req;
 	}
 
@@ -997,15 +997,15 @@ static struct tevent_req *rpc_host_bind_read_send(
 	if (tevent_req_nomem(subreq, req)) {
 		return tevent_req_post(req, ev);
 	}
-	tevent_req_set_callback(subreq, rpc_host_bind_read_got_bind, req);
+	tevent_req_set_callback(subreq, rpc_host_new_client_got_bind, req);
 	return req;
 }
 
-static void rpc_host_bind_read_cleanup(
+static void rpc_host_new_client_cleanup(
 	struct tevent_req *req, enum tevent_req_state req_state)
 {
-	struct rpc_host_bind_read_state *state = tevent_req_data(
-		req, struct rpc_host_bind_read_state);
+	struct rpc_host_new_client_state *state = tevent_req_data(
+		req, struct rpc_host_new_client_state);
 
 	if ((req_state == TEVENT_REQ_RECEIVED) && (state->sock != -1)) {
 		close(state->sock);
@@ -1013,12 +1013,12 @@ static void rpc_host_bind_read_cleanup(
 	}
 }
 
-static void rpc_host_bind_read_got_npa(struct tevent_req *subreq)
+static void rpc_host_new_client_got_npa(struct tevent_req *subreq)
 {
 	struct tevent_req *req = tevent_req_callback_data(
 		subreq, struct tevent_req);
-	struct rpc_host_bind_read_state *state = tevent_req_data(
-		req, struct rpc_host_bind_read_state);
+	struct rpc_host_new_client_state *state = tevent_req_data(
+		req, struct rpc_host_new_client_state);
 	struct named_pipe_auth_req_info8 *info8 = NULL;
 	struct auth_session_info *session_info = NULL;
 	uint32_t npa_flags = 0;
@@ -1068,15 +1068,15 @@ static void rpc_host_bind_read_got_npa(struct tevent_req *subreq)
 	if (tevent_req_nomem(subreq, req)) {
 		return;
 	}
-	tevent_req_set_callback(subreq, rpc_host_bind_read_got_bind, req);
+	tevent_req_set_callback(subreq, rpc_host_new_client_got_bind, req);
 }
 
-static void rpc_host_bind_read_got_bind(struct tevent_req *subreq)
+static void rpc_host_new_client_got_bind(struct tevent_req *subreq)
 {
 	struct tevent_req *req = tevent_req_callback_data(
 		subreq, struct tevent_req);
-	struct rpc_host_bind_read_state *state = tevent_req_data(
-		req, struct rpc_host_bind_read_state);
+	struct rpc_host_new_client_state *state = tevent_req_data(
+		req, struct rpc_host_new_client_state);
 	struct ncacn_packet *pkt = NULL;
 	NTSTATUS status;
 
@@ -1097,15 +1097,15 @@ static void rpc_host_bind_read_got_bind(struct tevent_req *subreq)
 	tevent_req_done(req);
 }
 
-static int rpc_host_bind_read_recv(
+static int rpc_host_new_client_recv(
 	struct tevent_req *req,
 	TALLOC_CTX *mem_ctx,
 	int *sock,
 	struct rpc_host_client **client,
 	struct ncacn_packet **bind_pkt)
 {
-	struct rpc_host_bind_read_state *state = tevent_req_data(
-		req, struct rpc_host_bind_read_state);
+	struct rpc_host_new_client_state *state = tevent_req_data(
+		req, struct rpc_host_new_client_state);
 	int err;
 
 	if (tevent_req_is_unix_error(req, &err)) {
@@ -2065,7 +2065,7 @@ struct rpc_host_endpoint_accept_state {
 };
 
 static void rpc_host_endpoint_accept_accepted(struct tevent_req *subreq);
-static void rpc_host_endpoint_accept_got_bind(struct tevent_req *subreq);
+static void rpc_host_endpoint_accept_client_ready(struct tevent_req *subreq);
 
 /*
  * Asynchronously wait for a DCERPC connection from a client.
@@ -2132,7 +2132,7 @@ static void rpc_host_endpoint_accept_accepted(struct tevent_req *subreq)
 	tevent_req_set_callback(
 		subreq, rpc_host_endpoint_accept_accepted, req);
 
-	subreq = rpc_host_bind_read_send(
+	subreq = rpc_host_new_client_send(
 		state,
 		state->ev,
 		dcerpc_binding_get_transport(endpoint->binding),
@@ -2142,13 +2142,13 @@ static void rpc_host_endpoint_accept_accepted(struct tevent_req *subreq)
 		return;
 	}
 	tevent_req_set_callback(
-		subreq, rpc_host_endpoint_accept_got_bind, req);
+		subreq, rpc_host_endpoint_accept_client_ready, req);
 }
 
 /*
  * Client sent us a DCERPC bind packet.
  */
-static void rpc_host_endpoint_accept_got_bind(struct tevent_req *subreq)
+static void rpc_host_endpoint_accept_client_ready(struct tevent_req *subreq)
 {
 	struct tevent_req *req = tevent_req_callback_data(
 		subreq, struct tevent_req);
@@ -2162,7 +2162,7 @@ static void rpc_host_endpoint_accept_got_bind(struct tevent_req *subreq)
 	int ret;
 	int sock=-1;
 
-	ret = rpc_host_bind_read_recv(
+	ret = rpc_host_new_client_recv(
 		subreq, state, &sock, &client, &bind_pkt);
 	TALLOC_FREE(subreq);
 	if (ret == EEXIST) {
@@ -2170,7 +2170,7 @@ static void rpc_host_endpoint_accept_got_bind(struct tevent_req *subreq)
 		goto fail;
 	}
 	if (ret != 0) {
-		DBG_DEBUG("rpc_host_bind_read_recv returned %s\n",
+		DBG_DEBUG("rpc_host_new_client_recv returned %s\n",
 			  strerror(ret));
 		goto fail;
 	}
