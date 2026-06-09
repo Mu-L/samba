@@ -504,7 +504,6 @@ static void rpc_worker_new_client(
 	return;
 fail:
 	TALLOC_FREE(ncacn_conn);
-	TALLOC_FREE(dcesrv_conn);
 	TALLOC_FREE(client);
 	if (sock != -1) {
 		close(sock);
