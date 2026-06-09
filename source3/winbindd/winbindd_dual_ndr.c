@@ -426,6 +426,7 @@ static NTSTATUS make_internal_dcesrv_connection(TALLOC_CTX *mem_ctx,
 	conn->dce_ctx = global_dcesrv_context();
 	conn->preferred_transfer = &ndr_transfer_syntax_ndr;
 	conn->transport.private_data = ncacn_conn;
+	ncacn_conn->dcesrv_conn = conn;
 
 	status = find_ncalrpc_default_endpoint(conn->dce_ctx, &endpoint);
 	if (!NT_STATUS_IS_OK(status)) {

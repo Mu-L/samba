@@ -33,18 +33,9 @@ typedef void (*dcerpc_ncacn_termination_fn)(struct dcesrv_connection *,
 					    void *);
 
 struct dcerpc_ncacn_conn {
-	struct dcerpc_ncacn_conn *prev, *next;
-
+	struct dcesrv_connection *dcesrv_conn;
 	struct pipes_struct p;
-	dcerpc_ncacn_termination_fn termination_fn;
-	void *termination_data;
-
-	struct dcesrv_endpoint *endpoint;
-
-	char *remote_client_name;
-	char *remote_client_addr;
-	char *local_server_name;
-	struct timeval tv;
+	void *private_data;
 };
 
 void set_incoming_fault(struct pipes_struct *p);

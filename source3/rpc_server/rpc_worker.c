@@ -65,8 +65,21 @@
  * to provide services that can be connected to from samba-dcerpcd.
  */
 
+struct rpc_worker;
+
+struct rpc_worker_connection {
+	struct rpc_worker_connection *prev, *next;
+	struct rpc_worker *worker;
+
+	const char *endpoint;
+
+	char *remote_client_name;
+	char *remote_client_addr;
+	char *local_server_name;
+	struct timeval tv;
+};
+
 struct rpc_worker {
-	struct dcerpc_ncacn_conn *conns;
 	struct server_id rpc_host_pid;
 	struct messaging_context *msg_ctx;
 	struct dcesrv_context *dce_ctx;
@@ -78,6 +91,8 @@ struct rpc_worker {
 	bool done;
 	struct timeval last_connect;
 	struct timeval last_disconnect;
+
+	struct rpc_worker_connection *conns;
 };
 
 static void rpc_worker_print_interface(
@@ -104,8 +119,6 @@ static NTSTATUS rpc_worker_report_status(struct rpc_worker *worker)
 	enum ndr_err_code ndr_err;
 	NTSTATUS status;
 
-	worker->status.num_association_groups = worker->dce_ctx->assoc_groups_num;
-
 	if (DEBUGLEVEL >= 10) {
 		NDR_PRINT_DEBUG(rpc_worker_status, &worker->status);
 	}
@@ -124,59 +137,77 @@ static NTSTATUS rpc_worker_report_status(struct rpc_worker *worker)
 	return status;
 }
 
-static void rpc_worker_connection_terminated(
-	struct dcesrv_connection *conn, void *private_data)
+static int dcesrv_connection_destructor(struct dcesrv_connection *conn)
 {
-	struct rpc_worker *worker = talloc_get_type_abort(
-		private_data, struct rpc_worker);
-	struct dcerpc_ncacn_conn *ncacn_conn = talloc_get_type_abort(
-		conn->transport.private_data, struct dcerpc_ncacn_conn);
-	struct dcerpc_ncacn_conn *w = NULL;
-	NTSTATUS status;
-	bool found = false;
+	struct dcesrv_context *dce_ctx = conn->dce_ctx;
+	struct dcerpc_ncacn_conn *ncacn_conn =
+		talloc_get_type_abort(conn->transport.private_data,
+		struct dcerpc_ncacn_conn);
+	struct rpc_worker_connection *worker_conn =
+		talloc_get_type_abort(ncacn_conn->private_data,
+		struct rpc_worker_connection);
+	struct rpc_worker *worker = worker_conn->worker;
 
 	/*
 	 * We need to drop the association group reference
 	 * explicitly here in order to avoid the order given
-	 * by the destructors. rpc_worker_report_status() below,
-	 * expects worker->dce_ctx->assoc_groups_num to be updated
+	 * by the destructors. rpc_worker_report_status()
+	 * in rpc_worker_connection_destructor()
+	 * expects worker->status.num_association_groups to be updated
 	 * already.
 	 */
 	if (conn->assoc_group != NULL) {
 		talloc_unlink(conn, conn->assoc_group);
 		conn->assoc_group = NULL;
 	}
+	worker->status.num_association_groups = dce_ctx->assoc_groups_num;
+
+	return 0;
+}
+
+static int dcerpc_ncacn_conn_destructor(struct dcerpc_ncacn_conn *ncacn_conn)
+{
+	/*
+	 * This triggers dcesrv_connection_destructor()
+	 * updating worker->status.num_association_groups
+	 */
+	TALLOC_FREE(ncacn_conn->dcesrv_conn);
+
+	/*
+	 * This triggers rpc_worker_connection_destructor()
+	 * that calls rpc_worker_report_status().
+	 */
+	TALLOC_FREE(ncacn_conn->private_data);
+	return 0;
+}
+
+static int rpc_worker_connection_destructor(struct rpc_worker_connection *conn)
+{
+	struct rpc_worker *worker = conn->worker;
+	NTSTATUS status;
+
+	DLIST_REMOVE(worker->conns, conn);
 
 	SMB_ASSERT(worker->status.num_connections > 0);
-
-	for (w = worker->conns; w != NULL; w = w->next) {
-		if (w == ncacn_conn) {
-			found = true;
-			break;
-		}
-	}
-	SMB_ASSERT(found);
-
-	DLIST_REMOVE(worker->conns, ncacn_conn);
-
 	worker->status.num_connections -= 1;
+
+	/*
+	 * rpc_worker_report_status() below,
+	 * expects worker->status.num_association_groups to be
+	 * updated already.
+	 *
+	 * So dcesrv_connection_destructor() should be triggered
+	 * before and synced worker->dce_ctx->assoc_groups_num to
+	 * worker->status.num_association_groups.
+	 */
+	SMB_ASSERT(worker->status.num_connections >=
+		   worker->status.num_association_groups);
 
 	GetTimeOfDay(&worker->last_disconnect);
 	status = rpc_worker_report_status(worker);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("rpc_worker_report_status returned %s\n",
 			  nt_errstr(status));
-	}
-}
-
-static int dcesrv_connection_destructor(struct dcesrv_connection *conn)
-{
-	struct dcerpc_ncacn_conn *ncacn_conn = talloc_get_type_abort(
-			conn->transport.private_data,
-			struct dcerpc_ncacn_conn);
-
-	if (ncacn_conn->termination_fn != NULL) {
-		ncacn_conn->termination_fn(conn, ncacn_conn->termination_data);
 	}
 
 	return 0;
@@ -198,6 +229,7 @@ static void rpc_worker_new_client(
 	enum dcerpc_transport_t transport;
 	struct dcesrv_endpoint *ep = NULL;
 	struct tstream_context *tstream = NULL;
+	struct rpc_worker_connection *worker_conn = NULL;
 	struct dcerpc_ncacn_conn *ncacn_conn = NULL;
 	struct dcesrv_connection *dcesrv_conn = NULL;
 	DATA_BLOB buffer = { .data = NULL };
@@ -270,19 +302,33 @@ static void rpc_worker_new_client(
 		goto fail;
 	}
 
-	ncacn_conn = talloc(dce_ctx, struct dcerpc_ncacn_conn);
+	worker_conn = talloc(worker, struct rpc_worker_connection);
+	if (worker_conn == NULL) {
+		DBG_DEBUG("talloc failed\n");
+		goto fail;
+	}
+	*worker_conn = (struct rpc_worker_connection) {
+		.worker = worker,
+	};
+	GetTimeOfDay(&worker_conn->tv);
+
+	ncacn_conn = talloc(worker_conn, struct dcerpc_ncacn_conn);
 	if (ncacn_conn == NULL) {
 		DBG_DEBUG("talloc failed\n");
 		goto fail;
 	}
 	*ncacn_conn = (struct dcerpc_ncacn_conn) {
-		.endpoint = ep,
-		.termination_fn = rpc_worker_connection_terminated,
-		.termination_data = worker,
+		.private_data = worker_conn,
 	};
 
+	worker_conn->endpoint = talloc_strdup(worker_conn, client->binding);
+	if (worker_conn->endpoint == NULL) {
+		DBG_DEBUG("talloc_strdup failed\n");
+		goto fail;
+	}
+
 	if (transport == NCALRPC) {
-		ret = tsocket_address_unix_from_path(ncacn_conn,
+		ret = tsocket_address_unix_from_path(worker_conn,
 						     info8->remote_client_addr,
 						     &remote_client_addr);
 		if (ret == -1) {
@@ -293,15 +339,15 @@ static void rpc_worker_new_client(
 			goto fail;
 		}
 
-		ncacn_conn->remote_client_name =
-			talloc_strdup(ncacn_conn, info8->remote_client_name);
-		if (ncacn_conn->remote_client_name == NULL) {
+		worker_conn->remote_client_name =
+			talloc_strdup(worker_conn, info8->remote_client_name);
+		if (worker_conn->remote_client_name == NULL) {
 			DBG_DEBUG("talloc_strdup(%s) failed\n",
 				  info8->remote_client_name);
 			goto fail;
 		}
 
-		ret = tsocket_address_unix_from_path(ncacn_conn,
+		ret = tsocket_address_unix_from_path(worker_conn,
 						     info8->local_server_addr,
 						     &local_server_addr);
 		if (ret == -1) {
@@ -312,16 +358,16 @@ static void rpc_worker_new_client(
 			goto fail;
 		}
 
-		ncacn_conn->local_server_name =
-			talloc_strdup(ncacn_conn, info8->local_server_name);
-		if (ncacn_conn->local_server_name == NULL) {
+		worker_conn->local_server_name =
+			talloc_strdup(worker_conn, info8->local_server_name);
+		if (worker_conn->local_server_name == NULL) {
 			DBG_DEBUG("talloc_strdup(%s) failed\n",
 				  info8->local_server_name);
 			goto fail;
 		}
 	} else {
 		ret = tsocket_address_inet_from_strings(
-			ncacn_conn,
+			worker_conn,
 			"ip",
 			info8->remote_client_addr,
 			info8->remote_client_port,
@@ -334,16 +380,16 @@ static void rpc_worker_new_client(
 				  strerror(errno));
 			goto fail;
 		}
-		ncacn_conn->remote_client_name =
-			talloc_strdup(ncacn_conn, info8->remote_client_name);
-		if (ncacn_conn->remote_client_name == NULL) {
+		worker_conn->remote_client_name =
+			talloc_strdup(worker_conn, info8->remote_client_name);
+		if (worker_conn->remote_client_name == NULL) {
 			DBG_DEBUG("talloc_strdup(%s) failed\n",
 				  info8->remote_client_name);
 			goto fail;
 		}
 
 		ret = tsocket_address_inet_from_strings(
-			ncacn_conn,
+			worker_conn,
 			"ip",
 			info8->local_server_addr,
 			info8->local_server_port,
@@ -356,17 +402,17 @@ static void rpc_worker_new_client(
 				  strerror(errno));
 			goto fail;
 		}
-		ncacn_conn->local_server_name =
-			talloc_strdup(ncacn_conn, info8->local_server_name);
-		if (ncacn_conn->local_server_name == NULL) {
+		worker_conn->local_server_name =
+			talloc_strdup(worker_conn, info8->local_server_name);
+		if (worker_conn->local_server_name == NULL) {
 			DBG_DEBUG("talloc_strdup(%s) failed\n",
 				  info8->local_server_name);
 			goto fail;
 		}
 
-		ncacn_conn->remote_client_addr = talloc_strdup(
-			ncacn_conn, info8->remote_client_addr);
-		if (ncacn_conn->remote_client_addr == NULL) {
+		worker_conn->remote_client_addr = talloc_strdup(
+			worker_conn, info8->remote_client_addr);
+		if (worker_conn->remote_client_addr == NULL) {
 			DBG_DEBUG("talloc_strdup(%s) failed\n",
 				  info8->remote_client_addr);
 			goto fail;
@@ -375,7 +421,7 @@ static void rpc_worker_new_client(
 
 	if (transport == NCACN_NP) {
 		ret = tstream_npa_existing_socket(
-			ncacn_conn,
+			worker_conn,
 			sock,
 			FILE_TYPE_MESSAGE_MODE_PIPE,
 			&tstream);
@@ -396,7 +442,7 @@ static void rpc_worker_new_client(
 		transport = info8->transport;
 	} else {
 		ret = tstream_bsd_existing_socket(
-			ncacn_conn, sock, &tstream);
+			worker_conn, sock, &tstream);
 		if (ret == -1) {
 			DBG_DEBUG("tstream_bsd_existing_socket failed: %s\n",
 				  strerror(errno));
@@ -448,6 +494,7 @@ static void rpc_worker_new_client(
 		goto fail;
 	}
 
+	ncacn_conn->dcesrv_conn = dcesrv_conn;
 	talloc_set_destructor(dcesrv_conn, dcesrv_connection_destructor);
 
 	dcesrv_conn->transport.private_data = ncacn_conn;
@@ -494,15 +541,16 @@ static void rpc_worker_new_client(
 
 	TALLOC_FREE(client);
 
-	GetTimeOfDay(&ncacn_conn->tv);
-	DLIST_ADD(worker->conns, ncacn_conn);
+	DLIST_ADD(worker->conns, worker_conn);
 	worker->status.num_connections += 1;
-	worker->last_connect = ncacn_conn->tv;
+	worker->last_connect = worker_conn->tv;
+	talloc_set_destructor(ncacn_conn, dcerpc_ncacn_conn_destructor);
+	talloc_set_destructor(worker_conn, rpc_worker_connection_destructor);
 	dcesrv_loop_next_packet(dcesrv_conn, pkt, buffer);
 
 	return;
 fail:
-	TALLOC_FREE(ncacn_conn);
+	TALLOC_FREE(worker_conn);
 	TALLOC_FREE(client);
 	if (sock != -1) {
 		close(sock);
@@ -575,7 +623,7 @@ static void dump_worker_client_info(TALLOC_CTX *root,
 				    struct rpc_worker *worker,
 				    FILE *f)
 {
-	struct dcerpc_ncacn_conn *conn = NULL;
+	struct rpc_worker_connection *conn = NULL;
 	struct timeval_buf buf_con = {0};
 	struct timeval_buf buf_discon = {0};
 	int i = 1;
@@ -600,10 +648,7 @@ static void dump_worker_client_info(TALLOC_CTX *root,
 					  &buf_discon)
 			: "N/A");
 	for (conn = worker->conns; conn != NULL; conn = conn->next) {
-		char *endpoint = NULL;
 		struct timeval_buf tvbuf = {0};
-		endpoint = dcerpc_binding_string(
-			conn, conn->endpoint->ep_description);
 		timeval_str_buf(&conn->tv, false, true, &tvbuf);
 		if (i == 1) {
 			fprintf(f, "   active connections:\n");
@@ -612,11 +657,10 @@ static void dump_worker_client_info(TALLOC_CTX *root,
 			"      [%d] endpoint=%s client addr=%s server=%s "
 			"connected at %s\n",
 			i++,
-			endpoint ? endpoint : "UNKNOWN",
+			conn->endpoint,
 			conn->remote_client_addr,
 			conn->local_server_name,
 			tvbuf.buf);
-		TALLOC_FREE(endpoint);
 	}
 }
 
@@ -655,7 +699,7 @@ static bool rpc_worker_status_filter(
 {
 	struct rpc_worker *worker = talloc_get_type_abort(
 		private_data, struct rpc_worker);
-	struct dcerpc_ncacn_conn *conn = NULL;
+	struct rpc_worker_connection *conn = NULL;
 	FILE *f = NULL;
 
 	if (rec->msg_type != MSG_RPC_DUMP_STATUS) {
@@ -674,17 +718,11 @@ static bool rpc_worker_status_filter(
 	}
 
 	for (conn = worker->conns; conn != NULL; conn = conn->next) {
-		char *endpoint = NULL;
-
-		endpoint = dcerpc_binding_string(
-			conn, conn->endpoint->ep_description);
-
 		fprintf(f,
 			"endpoint=%s client=%s server=%s\n",
-			endpoint ? endpoint : "UNKNOWN",
+			conn->endpoint,
 			conn->remote_client_name,
 			conn->local_server_name);
-		TALLOC_FREE(endpoint);
 	}
 
 	fclose(f);
