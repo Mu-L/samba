@@ -99,7 +99,14 @@ static int rpc_worker_connection_destructor(struct rpc_worker_connection *conn)
 	 * So dcesrv_connection_destructor() should be triggered
 	 * before and synced worker->dce_ctx->assoc_groups_num to
 	 * worker->status.num_association_groups.
+	 *
+	 * For npsd services we just sync num_association_groups
+	 * with num_connections.
 	 */
+	if (worker->is_npsd) {
+		worker->status.num_association_groups =
+			worker->status.num_connections;
+	}
 	SMB_ASSERT(worker->status.num_connections >=
 		   worker->status.num_association_groups);
 
@@ -313,6 +320,10 @@ static void rpc_worker_new_client(
 	TALLOC_FREE(client);
 	DLIST_ADD(worker->conns, worker_conn);
 	worker->status.num_connections += 1;
+	if (worker->is_npsd) {
+		worker->status.num_association_groups =
+			worker->status.num_connections;
+	}
 	worker->last_connect = worker_conn->tv;
 	talloc_set_destructor(worker_conn, rpc_worker_connection_destructor);
 	return;

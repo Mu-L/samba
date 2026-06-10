@@ -23,6 +23,7 @@ bld.SAMBA_LIBRARY('RPC_WORKER',
                   source='''
                   rpc_worker_internal.c
                   rpc_worker_dcerpc.c
+                  rpc_worker_nps.c
                   ''',
                   deps='''
                   smbd_base

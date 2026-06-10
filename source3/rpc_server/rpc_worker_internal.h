@@ -49,6 +49,7 @@ struct rpc_worker {
 	struct timeval last_connect;
 	struct timeval last_disconnect;
 
+	bool is_npsd;
 	struct rpc_worker_connection *conns;
 
 	/*
