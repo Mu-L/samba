@@ -28,6 +28,14 @@ struct pipes_struct;
 /* The following definitions come from rpc_server/srv_pipe_hnd.c  */
 
 bool fsp_is_np(struct files_struct *fsp);
+struct tevent_req *np_wait_exists_send(
+	TALLOC_CTX *mem_ctx,
+	struct tevent_context *ev,
+	const char *name,
+	const struct tsocket_address *remote_client_address,
+	const struct tsocket_address *local_server_address,
+	struct auth_session_info *session_info);
+NTSTATUS np_wait_exists_recv(struct tevent_req *req);
 NTSTATUS np_open(TALLOC_CTX *mem_ctx, const char *name,
 		 const struct tsocket_address *remote_client_address,
 		 const struct tsocket_address *local_server_address,

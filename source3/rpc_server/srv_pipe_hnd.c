@@ -30,6 +30,7 @@
 #include "rpc_server/rpc_config.h"
 #include "../lib/tsocket/tsocket.h"
 #include "../lib/util/tevent_ntstatus.h"
+#include "../lib/util/util_str_escape.h"
 #include "librpc/ndr/ndr_table.h"
 
 #undef DBGC_CLASS
@@ -46,6 +47,93 @@ bool fsp_is_np(struct files_struct *fsp)
 	type = fsp->fake_file_handle->type;
 
 	return (type == FAKE_FILE_TYPE_NAMED_PIPE_PROXY);
+}
+
+struct np_wait_exists_state {
+	const char *name;
+};
+
+static void np_wait_exists_done(struct tevent_req *subreq);
+
+struct tevent_req *np_wait_exists_send(
+	TALLOC_CTX *mem_ctx,
+	struct tevent_context *ev,
+	const char *name,
+	const struct tsocket_address *remote_client_address,
+	const struct tsocket_address *local_server_address,
+	struct auth_session_info *session_info)
+{
+	struct tevent_req *req = NULL, *subreq = NULL;
+	struct np_wait_exists_state *state = NULL;
+
+	req = tevent_req_create(mem_ctx, &state, struct np_wait_exists_state);
+	if (req == NULL) {
+		return NULL;
+	}
+	state->name = name;
+
+	subreq = local_np_connect_send(state,
+				       ev,
+				       name,
+				       NCACN_NP,
+				       NULL,
+				       remote_client_address,
+				       NULL,
+				       local_server_address,
+				       session_info,
+				       false, /* need_idle_server */
+				       true); /* probe_only */
+	if (tevent_req_nomem(subreq, req)) {
+		return tevent_req_post(req, ev);
+	}
+	tevent_req_set_callback(subreq, np_wait_exists_done, req);
+	return req;
+}
+
+static void np_wait_exists_done(struct tevent_req *subreq)
+{
+	struct tevent_req *req = tevent_req_callback_data(subreq,
+							  struct tevent_req);
+	struct np_wait_exists_state *state = tevent_req_data(
+		req, struct np_wait_exists_state);
+	struct tstream_context *npa_tstream = NULL;
+	int ret;
+
+	ret = local_np_connect_recv(subreq, state, &npa_tstream);
+	TALLOC_FREE(subreq);
+
+	if (ret == EEXIST) {
+		DBG_DEBUG("local_np_connect(%s, probe_only) returned %s\n",
+			  log_escape(state, state->name),
+			  strerror(ret));
+		tevent_req_done(req);
+		return;
+	}
+
+	if (ret == ENOENT) {
+		DBG_INFO("local_np_connect(%s, probe_only) returned %s\n",
+			 log_escape(state, state->name),
+			 strerror(ret));
+		tevent_req_nterror(req, NT_STATUS_OBJECT_NAME_NOT_FOUND);
+		return;
+	}
+
+	if (ret == 0) {
+		DBG_ERR("local_np_connect(%s, probe_only) returned 0\n",
+			log_escape(state, state->name));
+		tevent_req_nterror(req, NT_STATUS_INTERNAL_ERROR);
+		return;
+	}
+
+	DBG_WARNING("local_np_connect(%s, probe_only) returned %s\n",
+		    log_escape(state, state->name),
+		    strerror(ret));
+	tevent_req_nterror(req, map_nt_error_from_unix(ret));
+}
+
+NTSTATUS np_wait_exists_recv(struct tevent_req *req)
+{
+	return tevent_req_simple_recv_ntstatus(req);
 }
 
 NTSTATUS np_open(TALLOC_CTX *mem_ctx, const char *name,
