@@ -634,6 +634,7 @@ for t in smbtorture4_testsuites("dlz_bind9."):
     plansmbtorture4testsuite(t, "chgdcpass:local", ["ncalrpc:$SERVER", '-U$USERNAME%$PASSWORD'])
 
 planpythontestsuite("fileserver_smb1", "samba.tests.libsmb-basic")
+planpythontestsuite("fileserver", "samba.tests.nps_echo_test")
 
 planpythontestsuite("ad_member", "samba.tests.smb-notify",
                     environ={'USERNAME':'$DC_USERNAME',
