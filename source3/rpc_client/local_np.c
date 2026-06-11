@@ -459,6 +459,7 @@ struct local_np_connect_state {
 	struct tevent_context *ev;
 	const char *socketpath;
 	struct named_pipe_auth_req *npa_req;
+	bool probe_only;
 	struct tstream_context *npa_stream;
 };
 
@@ -481,6 +482,7 @@ static void local_np_connect_retried(struct tevent_req *subreq);
  * @param[in] local_server_addr The server addr to transmit
  * @param[in] session_info The authorization info to use
  * @param[in] need_idle_server Does this need to be an exclusive server?
+ * @param[in] probe_only Only check the pipename for EEXIST
  * @return The tevent_req that was started
  */
 
@@ -494,7 +496,8 @@ struct tevent_req *local_np_connect_send(
 	const char *local_server_name,
 	const struct tsocket_address *local_server_addr,
 	const struct auth_session_info *session_info,
-	bool need_idle_server)
+	bool need_idle_server,
+	bool probe_only)
 {
 	struct tevent_req *req = NULL, *subreq = NULL;
 	struct local_np_connect_state *state = NULL;
@@ -514,6 +517,7 @@ struct tevent_req *local_np_connect_send(
 		return NULL;
 	}
 	state->ev = ev;
+	state->probe_only = probe_only;
 
 	num_npa_sids =
 		security_token_count_flag_sids(session_info->security_token,
@@ -641,6 +645,10 @@ struct tevent_req *local_np_connect_send(
 
 	if (need_idle_server) {
 		npa_flags |= SAMBA_NPA_FLAGS_NEED_IDLE;
+	}
+
+	if (probe_only) {
+		npa_flags |= SAMBA_NPA_FLAGS_PROBE_ONLY;
 	}
 
 	ok = winbind_env_set();
@@ -786,7 +794,13 @@ int local_np_connect_recv(
 		return err;
 	}
 
+	if (state->probe_only) {
+		tevent_req_received(req);
+		return EEXIST;
+	}
+
 	*pstream = talloc_move(mem_ctx, &state->npa_stream);
+	tevent_req_received(req);
 	return 0;
 }
 
@@ -816,6 +830,7 @@ int local_np_connect(
 	const struct tsocket_address *local_server_addr,
 	const struct auth_session_info *session_info,
 	bool need_idle_server,
+	bool probe_only,
 	TALLOC_CTX *mem_ctx,
 	struct tstream_context **pstream)
 {
@@ -837,7 +852,8 @@ int local_np_connect(
 		local_server_name,
 		local_server_addr,
 		session_info,
-		need_idle_server);
+		need_idle_server,
+		probe_only);
 	if (req == NULL) {
 		goto fail;
 	}

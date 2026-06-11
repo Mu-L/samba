@@ -3670,7 +3670,8 @@ NTSTATUS rpc_pipe_open_local_np(
 		local_server_name,
 		local_server_addr,
 		session_info,
-		true,
+		true,  /* need_idle_server */
+		false, /* probe_only */
 		conn,
 		&npa_stream);
 	if (ret != 0) {

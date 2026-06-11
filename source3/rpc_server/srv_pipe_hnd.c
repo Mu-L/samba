@@ -83,7 +83,8 @@ NTSTATUS np_open(TALLOC_CTX *mem_ctx, const char *name,
 		NULL,
 		local_server_address,
 		session_info,
-		false,
+		false, /* need_idle_server */
+		false, /* probe_only */
 		npa,
 		&npa->stream);
 	if (ret != 0) {

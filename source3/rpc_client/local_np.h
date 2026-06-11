@@ -34,7 +34,8 @@ struct tevent_req *local_np_connect_send(
 	const char *local_server_name,
 	const struct tsocket_address *local_server_addr,
 	const struct auth_session_info *session_info,
-	bool need_idle_server);
+	bool need_idle_server,
+	bool probe_only);
 
 int local_np_connect_recv(
 	struct tevent_req *req,
@@ -50,6 +51,7 @@ int local_np_connect(
 	const struct tsocket_address *local_server_addr,
 	const struct auth_session_info *session_info,
 	bool need_idle_server,
+	bool probe_only,
 	TALLOC_CTX *mem_ctx,
 	struct tstream_context **stream);
 
