@@ -54,7 +54,6 @@ NTSTATUS np_open(TALLOC_CTX *mem_ctx, const char *name,
 		 struct auth_session_info *session_info,
 		 struct tevent_context *ev_ctx,
 		 struct messaging_context *msg_ctx,
-		 struct dcesrv_context *dce_ctx,
 		 struct fake_file_handle **phandle)
 {
 	struct fake_file_handle *handle;
