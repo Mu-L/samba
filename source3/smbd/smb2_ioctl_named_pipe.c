@@ -23,8 +23,10 @@
 #include "smbd/globals.h"
 #include "../libcli/smb/smb_common.h"
 #include "../lib/util/tevent_ntstatus.h"
+#include "../lib/util/util_str_escape.h"
 #include "rpc_server/srv_pipe_hnd.h"
 #include "include/ntioctl.h"
+#include "librpc/gen_ndr/ndr_ioctl.h"
 #include "smb2_ioctl_private.h"
 
 #undef DBGC_CLASS
@@ -32,6 +34,7 @@
 
 static void smbd_smb2_ioctl_pipe_write_done(struct tevent_req *subreq);
 static void smbd_smb2_ioctl_pipe_read_done(struct tevent_req *subreq);
+static void smbd_smb2_ioctl_pipe_wait_done(struct tevent_req *subreq);
 
 struct tevent_req *smb2_ioctl_named_pipe(uint32_t ctl_code,
 					 struct tevent_context *ev,
@@ -42,7 +45,43 @@ struct tevent_req *smb2_ioctl_named_pipe(uint32_t ctl_code,
 	uint8_t *out_data = NULL;
 	uint32_t out_data_len = 0;
 
-	if (ctl_code == FSCTL_PIPE_TRANSCEIVE) {
+	if (ctl_code == FSCTL_PIPE_WAIT) {
+		struct connection_struct *conn = state->smbreq->conn;
+		struct fsctl_pipe_wait wait_request = { .pipe_name = NULL, };
+		enum ndr_err_code err;
+		struct tevent_req *subreq = NULL;
+
+		if (!IS_IPC(conn)) {
+			tevent_req_nterror(req,
+					NT_STATUS_INVALID_DEVICE_REQUEST);
+			return tevent_req_post(req, ev);
+		}
+
+		err = ndr_pull_struct_blob(&state->in_input,
+				state, &wait_request,
+				(ndr_pull_flags_fn_t)ndr_pull_fsctl_pipe_wait);
+		if (!NDR_ERR_CODE_IS_SUCCESS(err)) {
+			tevent_req_nterror(req, NT_STATUS_INVALID_PARAMETER);
+			return tevent_req_post(req, ev);
+		}
+
+		DBG_DEBUG("Handling FSCTL_PIPE_WAIT: %s\n",
+			  log_escape(state, wait_request.pipe_name));
+
+		subreq = np_wait_exists_send(state,
+					     ev,
+					     wait_request.pipe_name,
+					     conn->sconn->remote_address,
+					     conn->sconn->local_address,
+					     conn->session_info);
+		if (tevent_req_nomem(subreq, req)) {
+			return tevent_req_post(req, ev);
+		}
+		tevent_req_set_callback(subreq,
+					smbd_smb2_ioctl_pipe_wait_done,
+					req);
+		return req;
+	} else if (ctl_code == FSCTL_PIPE_TRANSCEIVE) {
 		struct tevent_req *subreq;
 
 		if (!IS_IPC(state->smbreq->conn)) {
@@ -187,4 +226,10 @@ static void smbd_smb2_ioctl_pipe_read_done(struct tevent_req *subreq)
 	}
 
 	tevent_req_done(req);
+}
+
+static void smbd_smb2_ioctl_pipe_wait_done(struct tevent_req *subreq)
+{
+	NTSTATUS status = np_wait_exists_recv(subreq);
+	tevent_req_simple_finish_ntstatus(subreq, status);
 }
