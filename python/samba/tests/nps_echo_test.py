@@ -35,16 +35,28 @@ class TestNPSEcho(samba.tests.TestCase):
         self.creds.set_username(self.user)
         self.creds.set_password(self.passwd)
 
-    def test_msg_nps_echo(self):
+    def _test_simple_echo(self, pipe_name):
         c = libsmb.Conn(
             self.server_ip,
             "ipc$",
             self.lp,
             self.creds)
 
-        fnum = c.create("nps_echo_msg8", CreateDisposition=libsmb.FILE_OPEN);
+        fnum = c.create(pipe_name, CreateDisposition=libsmb.FILE_OPEN);
         echoes = [b'one', b'two', b'three', b'four']
         for echo in echoes:
             c.write(fnum, echo, len(echo), 0)
             buf = c.read(fnum, 0, 4096)
             self.assertEqual(buf, echo)
+
+    def test_simple_echo_nps_echo_msg8(self):
+        return self._test_simple_echo("nps_echo_msg8")
+
+    def test_simple_echo_nps_ECHO_msg8(self):
+        return self._test_simple_echo("nps_ECHO_msg8")
+
+    def test_simple_echo_nps_echo_msg16(self):
+        return self._test_simple_echo("nps_echo_msg16")
+
+    def test_simple_echo_nps_ECHO_msg16(self):
+        return self._test_simple_echo("nps_ECHO_msg16")
