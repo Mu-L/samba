@@ -569,6 +569,13 @@ bld.SAMBA_SUBSYSTEM('RPC_NDR_SMBXSRV',
     public_deps='dcerpc-binding NDR_SMBXSRV'
     )
 
+bld.SAMBA_PYTHON('python_ioctl',
+        source='../../librpc/gen_ndr/py_ioctl.c',
+        deps='NDR_IOCTL %s %s' % (pytalloc_util, pyrpc_util),
+        realname='samba/dcerpc/ioctl.so',
+        cflags_end=gen_cflags
+        )
+
 bld.SAMBA_PYTHON('python_smbXsrv',
         source='../../source3/librpc/gen_ndr/py_smbXsrv.c',
         deps='RPC_NDR_SMBXSRV %s %s' % (pytalloc_util, pyrpc_util),

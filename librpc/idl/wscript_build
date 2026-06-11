@@ -113,7 +113,7 @@ bld.SAMBA_PIDL_LIST('PIDL',
                     wsp_data.idl
                     wsp.idl
                     ''',
-                    options='--header --ndr-parser',
+                    options='--header --ndr-parser --python',
                     output_dir='../gen_ndr',
                     generate_fuzzers=False)
 
