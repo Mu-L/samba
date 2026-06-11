@@ -72,6 +72,11 @@ static NTSTATUS map_smb2_handle_to_fnum(struct cli_state *cli,
 	struct idr_context *idp = cli->smb2.open_handles;
 	struct smb2_hnd *owned_h = NULL;
 
+	if (fid_persistent == UINT64_MAX && fid_volatile == UINT64_MAX) {
+		*pfnum = UINT16_MAX;
+		return NT_STATUS_OK;
+	}
+
 	owned_h = talloc(cli, struct smb2_hnd);
 	if (owned_h == NULL) {
 		return NT_STATUS_NO_MEMORY;
@@ -106,12 +111,22 @@ static NTSTATUS map_smb2_handle_to_fnum(struct cli_state *cli,
  Return the smb2_hnd pointer associated with the given fnum.
 ***************************************************************/
 
+static const struct smb2_hnd map_fnum_no_smb2_hnd = {
+	.fid_persistent = UINT64_MAX,
+	.fid_volatile = UINT64_MAX,
+};
+
 static NTSTATUS map_fnum_to_smb2_handle(struct cli_state *cli,
 				uint16_t fnum,		/* In */
 				const struct smb2_hnd **pph)	/* Out */
 {
 	struct idr_context *idp = cli->smb2.open_handles;
 	void *ph = NULL;
+
+	if (fnum == UINT16_MAX) {
+		*pph = &map_fnum_no_smb2_hnd;
+		return NT_STATUS_OK;
+	}
 
 	if (idp == NULL) {
 		return NT_STATUS_INVALID_PARAMETER;
@@ -135,6 +150,13 @@ static NTSTATUS delete_smb2_handle_mapping(struct cli_state *cli,
 {
 	struct idr_context *idp = cli->smb2.open_handles;
 	struct smb2_hnd *ph;
+
+	if (fnum == UINT16_MAX) {
+		if (*pph != &map_fnum_no_smb2_hnd) {
+			return NT_STATUS_INVALID_PARAMETER;
+		}
+		return NT_STATUS_OK;
+	}
 
 	if (idp == NULL) {
 		return NT_STATUS_INVALID_PARAMETER;
