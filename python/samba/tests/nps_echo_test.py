@@ -21,6 +21,12 @@ from samba.samba3 import param as s3param
 import samba.tests
 import os
 from samba.credentials import Credentials
+from samba.ndr import ndr_pack
+from samba.dcerpc import ioctl as ioctl
+from samba import NTSTATUSError
+from samba.ntstatus import (
+    NT_STATUS_OBJECT_NAME_NOT_FOUND,
+)
 
 class TestNPSEcho(samba.tests.TestCase):
 
@@ -60,3 +66,48 @@ class TestNPSEcho(samba.tests.TestCase):
 
     def test_simple_echo_nps_ECHO_msg16(self):
         return self._test_simple_echo("nps_ECHO_msg16")
+
+    def test_pipe_wait_non_existing(self):
+        c = libsmb.Conn(
+            self.server_ip,
+            "ipc$",
+            self.lp,
+            self.creds)
+
+        pipe_wait = ioctl.fsctl_pipe_wait()
+        pipe_wait.timeout = 0
+        pipe_wait.pipe_name = "Non_Existing"
+
+        wait_req = ndr_pack(pipe_wait)
+
+        try:
+            c.fsctl(0xffff, libsmb.FSCTL_PIPE_WAIT, wait_req, 0)
+            self.fail()
+        except NTSTATUSError as e:
+            if e.args[0] != NT_STATUS_OBJECT_NAME_NOT_FOUND:
+                raise
+
+    def _test_pipe_wait(self, pipe_name):
+        c = libsmb.Conn(
+            self.server_ip,
+            "ipc$",
+            self.lp,
+            self.creds)
+
+        pipe_wait = ioctl.fsctl_pipe_wait()
+        pipe_wait.timeout = 0
+        pipe_wait.pipe_name = pipe_name
+        wait_req = ndr_pack(pipe_wait)
+        c.fsctl(0xffff, libsmb.FSCTL_PIPE_WAIT, wait_req, 0)
+
+    def test_pipe_wait_nps_echo_msg8(self):
+        return self._test_pipe_wait("nps_echo_msg8")
+
+    def test_pipe_wait_nps_ECHO_msg8(self):
+        return self._test_pipe_wait("nps_ECHO_msg8")
+
+    def test_pipe_wait_nps_echo_msg16(self):
+        return self._test_pipe_wait("nps_echo_msg16")
+
+    def test_pipe_wait_NPS_ECHO_MSG16(self):
+        return self._test_pipe_wait("NPS_ECHO_MSG16")
