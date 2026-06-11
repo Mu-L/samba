@@ -34,6 +34,14 @@ bld.SAMBA_LIBRARY('RPC_WORKER',
                   npa_tstream
                   ''')
 
+bld.SAMBA3_BINARY('npsd_echo_server',
+                  source='npsd_echo_server.c',
+                  deps='''
+                  RPC_WORKER
+                  ''',
+                  for_selftest=True,
+                  install_path='${SAMBA_LIBEXECDIR}')
+
 bld.SAMBA3_BINARY('rpcd_rpcecho',
                   source='rpcd_rpcecho.c',
                   deps='''
