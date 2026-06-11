@@ -1353,14 +1353,12 @@ again:
 		uint32_t flags = 0;
 		bool found;
 
-		client_type = "new";
-
 		found = security_token_find_npa_flags(
 			session_info->session_info->security_token,
 			&flags);
 
 		/* fresh assoc group requested */
-		if (found & (flags & SAMBA_NPA_FLAGS_NEED_IDLE)) {
+		if (found && (flags & SAMBA_NPA_FLAGS_NEED_IDLE)) {
 			client_type = "new+exclusive";
 			worker = rpc_host_find_idle_worker(server);
 		} else {
