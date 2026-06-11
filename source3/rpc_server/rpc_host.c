@@ -1019,6 +1019,9 @@ static void rpc_host_bind_read_got_npa(struct tevent_req *subreq)
 	struct rpc_host_bind_read_state *state = tevent_req_data(
 		req, struct rpc_host_bind_read_state);
 	struct named_pipe_auth_req_info8 *info8 = NULL;
+	struct auth_session_info *session_info = NULL;
+	uint32_t npa_flags = 0;
+	bool npa_found;
 	int ret, err;
 
 	ret = tstream_npa_accept_existing_recv(subreq,
@@ -1034,6 +1037,26 @@ static void rpc_host_bind_read_got_npa(struct tevent_req *subreq)
 					       NULL); /* session_info */
 	if (ret == -1) {
 		tevent_req_error(req, err);
+		return;
+	}
+
+	session_info = info8->session_info->session_info;
+	npa_found = security_token_find_npa_flags(session_info->security_token,
+						  &npa_flags);
+	if (npa_found && (npa_flags & SAMBA_NPA_FLAGS_PROBE_ONLY)) {
+		/*
+		 * This means the caller will close
+		 * stop processing as the client
+		 * only wanted to probe if the
+		 * pipe exists.
+		 */
+		TALLOC_FREE(state->npa_stream);
+		TALLOC_FREE(state->plain);
+		if (state->sock != -1) {
+			close(state->sock);
+			state->sock = -1;
+		}
+		tevent_req_error(req, EEXIST);
 		return;
 	}
 
@@ -2141,6 +2164,10 @@ static void rpc_host_endpoint_accept_got_bind(struct tevent_req *subreq)
 	ret = rpc_host_bind_read_recv(
 		subreq, state, &sock, &client, &bind_pkt);
 	TALLOC_FREE(subreq);
+	if (ret == EEXIST) {
+		DBG_DEBUG("SAMBA_NPA_FLAGS_PROBE_ONLY returning\n");
+		goto fail;
+	}
 	if (ret != 0) {
 		DBG_DEBUG("rpc_host_bind_read_recv returned %s\n",
 			  strerror(ret));
